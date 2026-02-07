@@ -1,6 +1,5 @@
 import { Message } from "@/lib/types";
-import { Loader2, Sparkles, Terminal } from "lucide-react";
-import { memo } from "react";
+import { Loader2, Terminal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -16,7 +15,7 @@ export const AssistantBubble = function AssistantBubble({ message, status, isLas
 
     return (
         <div className="flex gap-2.5 max-w-[92%] group">
-            <div className="text-sm md:text-[15px] leading-relaxed break-words rounded-2xl rounded-tl-sm px-5 py-4 bg-card border border-border/40 shadow-sm relative transition-all duration-300 hover:shadow-md hover:border-border/60">
+            <div className="text-sm md:text-[15px] leading-relaxed wrap-break-word rounded-2xl rounded-tl-sm px-5 py-4 bg-card border border-border/40 shadow-sm relative transition-all duration-300 hover:shadow-md hover:border-border/60">
                 {showStatus && status && (
                     <div className="flex items-center gap-2.5 mb-4 bg-primary/5 py-1.5 px-3 rounded-full w-fit animate-in fade-in slide-in-from-top-2 duration-500 border border-primary/10">
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />

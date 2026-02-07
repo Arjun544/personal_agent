@@ -1,8 +1,6 @@
-import { createAgent } from "langchain";
 import type { Server, Socket } from "socket.io";
-import { PERSONAL_PROMPT } from "../prompts/personal";
+import { agent } from "../services/agent";
 import { storeMessage } from "../services/store";
-import { currentTimeTool } from "../tools/current-time-tool";
 
 type ChatMessage = {
     conversationId: string;
@@ -11,32 +9,24 @@ type ChatMessage = {
     userId: string;
 };
 
-export default function registerChatHandlers(
-    socket: Socket
-) {
+export default function registerChatHandlers(socket: Socket) {
     socket.on("user_message", async (payload: ChatMessage | { data: ChatMessage }) => {
         try {
             const data = "data" in payload ? payload.data : payload;
             const { conversationId, userMessage, socketId, userId } = data;
             console.log('user_message received', conversationId, userMessage, socketId, userId);
+
             const io = (globalThis as any).io as Server;
             if (!io) {
                 socket.emit("error", "Socket.IO server not initialized.");
                 return;
             }
-            // save user message
-            await storeMessage(
-                {
-                    conversationId,
-                    content: userMessage,
-                    role: 'user',
-                }
-            );
 
-            const agent = createAgent({
-                model: "gpt-4o",
-                tools: [currentTimeTool],
-                systemPrompt: PERSONAL_PROMPT,
+            // Save user message
+            await storeMessage({
+                conversationId,
+                content: userMessage,
+                role: 'user',
             });
 
             const config = {
@@ -44,14 +34,14 @@ export default function registerChatHandlers(
                 context: { user_id: userId },
             };
 
+            // Stream events from the LangGraph agent
             const eventStream = agent.streamEvents(
                 { messages: [{ role: "user", content: userMessage }] },
                 {
-                    version: "v2", // Always use version v2
+                    version: "v2",
                     configurable: config
                 }
             );
-
 
             let fullAssistantResponse = '';
             for await (const event of eventStream) {
@@ -59,6 +49,9 @@ export default function registerChatHandlers(
                 if (event.event === "on_chat_model_stream") {
                     const content = event.data.chunk.content;
                     if (content) {
+                        // Clear any tool/thinking status once we start receiving text
+                        io.to(socketId).emit('stream:status', { status: null });
+
                         fullAssistantResponse += content;
                         io.to(socketId).emit('stream:chunk', {
                             chunk: content,
@@ -67,29 +60,36 @@ export default function registerChatHandlers(
                     }
                 }
 
-                // 2. Stream tool calls (useful for status indicators)
+                // 2. Stream tool calls
                 if (event.event === "on_tool_start") {
                     io.to(socketId).emit('stream:status', {
-                        status: `Using tool: ${event.name}`,
+                        status: `Using ${event.name}`,
+                    });
+                }
+
+                // 3. Thinking status
+                if (event.event === "on_chat_model_start") {
+                    io.to(socketId).emit('stream:status', {
+                        status: "Thinking",
+                    });
+                }
+
+                if (event.event === "on_chat_model_end") {
+                    io.to(socketId).emit('stream:chunk', {
+                        chunk: fullAssistantResponse,
+                        done: true,
                     });
                 }
             }
 
-            // Signal completion to the client
-            io.to(socketId).emit('stream:chunk', {
-                chunk: "",
-                done: true,
-            });
-
             // Persist the assistant message
-            await storeMessage(
-                {
-                    conversationId: conversationId!,
-                    content: fullAssistantResponse,
-                    role: 'assistant',
-                }
-            );
+            await storeMessage({
+                conversationId: conversationId!,
+                content: fullAssistantResponse,
+                role: 'assistant',
+            });
         } catch (err) {
+            console.error('Error in chat handler:', err);
             socket.emit("error", "Failed to process message");
         }
     });

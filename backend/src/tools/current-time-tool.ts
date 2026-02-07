@@ -1,5 +1,4 @@
-import * as z from "zod"
-import { tool } from "langchain"
+import { tool } from "@langchain/core/tools";
 
 export const currentTimeTool = tool(
     (_) => new Date().toLocaleString(),

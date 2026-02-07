@@ -1,10 +1,7 @@
-import { createAgent } from "langchain";
-import { Server as SocketIOServer } from 'socket.io';
-import { PERSONAL_PROMPT } from '../prompts/personal';
-
 import { Request, Response } from 'express';
+import { Server as SocketIOServer } from 'socket.io';
+import { agent } from "../services/agent";
 import { storeMessage } from "../services/store";
-import { currentTimeTool } from '../tools/current-time-tool';
 
 export const agentController = {
     chat: async (req: Request, res: Response) => {
@@ -25,19 +22,11 @@ export const agentController = {
                 });
             }
 
-            // save user message
-            await storeMessage(
-                {
-                    conversationId: conversationId!,
-                    content: userMessage,
-                    role: 'user',
-                }
-            );
-
-            const agent = createAgent({
-                model: "gpt-4o",
-                tools: [currentTimeTool],
-                systemPrompt: PERSONAL_PROMPT,
+            // Save user message
+            await storeMessage({
+                conversationId: conversationId!,
+                content: userMessage,
+                role: 'user',
             });
 
             const config = {
@@ -45,22 +34,26 @@ export const agentController = {
                 context: { user_id: userId },
             };
 
-            const stream = await agent.stream(
+            // Stream events from the LangGraph agent
+            const eventStream = agent.streamEvents(
                 { messages: [{ role: "user", content: userMessage }] },
-                { configurable: config, streamMode: "messages", }
+                {
+                    version: "v2",
+                    configurable: config
+                }
             );
 
             let fullAssistantResponse = '';
-            for await (const chunk of stream) {
-                const data = chunk[0];
-                if (data?.content) {
-                    const content = data.content as string;
-                    fullAssistantResponse += content;
-
-                    io.to(socketId).emit('stream:chunk', {
-                        chunk: content,
-                        done: false,
-                    });
+            for await (const event of eventStream) {
+                if (event.event === "on_chat_model_stream") {
+                    const content = event.data.chunk.content;
+                    if (content) {
+                        fullAssistantResponse += content;
+                        io.to(socketId).emit('stream:chunk', {
+                            chunk: content,
+                            done: false,
+                        });
+                    }
                 }
             }
 
@@ -71,13 +64,11 @@ export const agentController = {
             });
 
             // Persist the assistant message
-            await storeMessage(
-                {
-                    conversationId: conversationId!,
-                    content: fullAssistantResponse,
-                    role: 'assistant',
-                }
-            );
+            await storeMessage({
+                conversationId: conversationId!,
+                content: fullAssistantResponse,
+                role: 'assistant',
+            });
 
             return res.status(200).json({
                 message: 'Stream success',
@@ -85,10 +76,8 @@ export const agentController = {
             });
 
         } catch (error) {
-            console.error(error)
-            const errorMessage = error instanceof Error
-                ? error.message
-                : String(error);
+            console.error('Error in agent controller:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
 
             // Emit error to socket if socketId was provided
             const body = req.body as { message?: string; socketId?: string };
