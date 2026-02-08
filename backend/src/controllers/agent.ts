@@ -29,17 +29,15 @@ export const agentController = {
                 role: 'user',
             });
 
-            const config = {
-                configurable: { thread_id: conversationId },
-                context: { user_id: userId },
-            };
-
             // Stream events from the LangGraph agent
             const eventStream = agent.streamEvents(
                 { messages: [{ role: "user", content: userMessage }] },
                 {
                     version: "v2",
-                    configurable: config
+                    configurable: {
+                        thread_id: conversationId,
+                        user_id: userId,
+                    }
                 }
             );
 
