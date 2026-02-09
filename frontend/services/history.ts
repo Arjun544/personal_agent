@@ -30,12 +30,15 @@ export const getConversations = async (userId: string): Promise<Conversation[]> 
     }
 }
 
-export const getMessages = async (id: string): Promise<Message[]> => {
+export const getMessages = async (id: string, limit: number = 20, cursor?: string): Promise<{ history: Message[], nextCursor: string | null }> => {
     try {
-        const response = await axiosInstance.get(`/history/messages?id=${id}`);
-        return response.data.history || [];
+        const response = await axiosInstance.get(`/history/messages?id=${id}&limit=${limit}${cursor ? `&cursor=${cursor}` : ''}`);
+        return {
+            history: response.data.history || [],
+            nextCursor: response.data.nextCursor || null
+        };
     } catch (error) {
         console.error(error);
-        return [];
+        return { history: [], nextCursor: null };
     }
 }

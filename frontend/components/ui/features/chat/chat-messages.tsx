@@ -5,7 +5,7 @@ import { socket } from '@/lib/socket'
 import { Conversation, Message } from '@/lib/types'
 import { getMessages, renameConversation } from '@/services/history'
 import { useUser } from '@clerk/nextjs'
-import { queryOptions, useMutation, useSuspenseQuery } from '@tanstack/react-query'
+import { InfiniteData, useMutation, useSuspenseInfiniteQuery } from '@tanstack/react-query'
 import { ArrowDown, Check, Sparkles } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -60,13 +60,14 @@ export function ChatMessages({ id }: { id: string }) {
     );
 
     // 2. Fetch or Sync Messages
-    const { data } = useSuspenseQuery(queryOptions({
+    const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useSuspenseInfiniteQuery({
         queryKey: ['chat-messages', id],
-        queryFn: async () => {
-            const serverMessages = await getMessages(id);
-            return serverMessages;
-        },
-    }));
+        queryFn: ({ pageParam }) => getMessages(id, 20, pageParam as string | undefined),
+        initialPageParam: undefined as string | undefined,
+        getNextPageParam: (lastPage) => lastPage.nextCursor,
+    });
+
+    const messages = data.pages.slice().reverse().flatMap((page) => page.history);
 
     const renameConversationMutation = useMutation({
         mutationKey: ['rename_conversation'],
@@ -85,11 +86,17 @@ export function ChatMessages({ id }: { id: string }) {
             const userEntry = buildMessage('user', userMessage, 'sending');
             const assistantEntry = buildMessage('assistant', '', 'streaming');
 
-            queryClient.setQueryData<Message[]>(['chat-messages', id], (old = []) => [
-                ...old,
-                userEntry,
-                assistantEntry,
-            ]);
+            queryClient.setQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id], (old) => {
+                if (!old) return old;
+                const newPages = [...old.pages];
+                if (newPages.length > 0) {
+                    newPages[0] = {
+                        ...newPages[0],
+                        history: [...newPages[0].history, userEntry, assistantEntry]
+                    };
+                }
+                return { ...old, pages: newPages };
+            });
         },
         [buildMessage, id, queryClient],
     );
@@ -119,12 +126,24 @@ export function ChatMessages({ id }: { id: string }) {
     useEffect(() => {
         if (!firstMessage || hasSeededFirstMessage.current) return;
 
-        const currentData = queryClient.getQueryData<Message[]>(['chat-messages', id]) || [];
+        const currentData = queryClient.getQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id]);
 
-        if (currentData.length === 0) {
+        if (!currentData || currentData.pages.flatMap(p => p.history).length === 0) {
             const userEntry = buildMessage('user', firstMessage, 'sending');
             const assistantEntry = buildMessage('assistant', '', 'streaming');
-            queryClient.setQueryData<Message[]>(['chat-messages', id], [userEntry, assistantEntry]);
+
+            queryClient.setQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id], (old) => {
+                if (!old) return {
+                    pages: [{ history: [userEntry, assistantEntry], nextCursor: null }],
+                    pageParams: [undefined]
+                };
+                const newPages = [...old.pages];
+                newPages[0] = {
+                    ...newPages[0],
+                    history: [...newPages[0].history, userEntry, assistantEntry]
+                };
+                return { ...old, pages: newPages };
+            });
         }
 
         hasSeededFirstMessage.current = true;
@@ -147,7 +166,7 @@ export function ChatMessages({ id }: { id: string }) {
 
     // 6. AUTO-RENAME EFFECT: Create a title based on the first message
     useEffect(() => {
-        if (data && data.length > 0) {
+        if (messages.length > 0) {
             const conversations = queryClient.getQueryData<Conversation[]>(['conversations']);
             const currentConversation = conversations?.find((c) => String(c.id) === String(id));
 
@@ -160,11 +179,11 @@ export function ChatMessages({ id }: { id: string }) {
                 renamingId.current = id;
                 renameConversationMutation.mutate({
                     id,
-                    message: data[0].content,
+                    message: messages[0].content,
                 });
             }
         }
-    }, [data, id, queryClient, renameConversationMutation]);
+    }, [messages, id, queryClient, renameConversationMutation]);
 
     // 7. SOCKET LISTENERS
     useEffect(() => {
@@ -178,24 +197,35 @@ export function ChatMessages({ id }: { id: string }) {
         const onDisconnect = () => setIsConnected(false);
 
         const onStreamChunk = ({ chunk, done }: StreamChunk) => {
-            queryClient.setQueryData<Message[]>(['chat-messages', id], (old = []) => {
-                if (old.length === 0) return old;
+            queryClient.setQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id], (old) => {
+                if (!old || old.pages.length === 0) return old;
 
-                const lastIndex = old.length - 1;
-                const lastMessage = old[lastIndex];
+                const newPages = [...old.pages];
+                const lastPageIndex = 0; // Newest page
+                const lastHistory = [...newPages[lastPageIndex].history];
+
+                if (lastHistory.length === 0) return old;
+
+                const lastIndex = lastHistory.length - 1;
+                const lastMessage = lastHistory[lastIndex];
 
                 if (lastMessage.role !== 'assistant') {
                     const assistantEntry = buildMessage('assistant', chunk, done ? 'done' : 'streaming');
-                    return [...old, assistantEntry];
+                    lastHistory.push(assistantEntry);
+                } else {
+                    lastHistory[lastIndex] = {
+                        ...lastMessage,
+                        content: lastMessage.content + chunk,
+                        status: done ? 'done' : 'streaming',
+                    };
                 }
 
-                const updated: Message = {
-                    ...lastMessage,
-                    content: lastMessage.content + chunk,
-                    status: done ? 'done' : 'streaming',
+                newPages[lastPageIndex] = {
+                    ...newPages[lastPageIndex],
+                    history: lastHistory
                 };
 
-                return [...old.slice(0, lastIndex), updated];
+                return { ...old, pages: newPages };
             });
 
             if (done) setStatus(null);
@@ -217,14 +247,14 @@ export function ChatMessages({ id }: { id: string }) {
     }, [id, buildMessage, queryClient]);
 
     const scrollToBottom = useCallback(() => {
-        if (data && data.length > 0) {
+        if (messages.length > 0) {
             virtuosoRef.current?.scrollToIndex({
-                index: data.length - 1,
+                index: messages.length - 1,
                 behavior: 'smooth',
                 align: 'end',
             });
         }
-    }, [data.length]); // Use data.length for stability
+    }, [messages.length]); // Use messages.length for stability
 
     const handleSendMessage = useCallback((message: string) => {
         sendMessage(message);
@@ -233,7 +263,7 @@ export function ChatMessages({ id }: { id: string }) {
     }, [sendMessage, scrollToBottom]);
 
     const renderItem = useCallback((index: number, message: Message) => {
-        const isLast = index === data.length - 1;
+        const isLast = index === messages.length - 1;
         return (
             <div className="flex flex-col items-center w-full py-3 sm:py-4">
                 <div className={`flex w-full max-w-4xl gap-4 px-4 md:px-8 lg:px-12 ${message.role === 'user' ? 'justify-end' : 'justify-start'
@@ -250,7 +280,13 @@ export function ChatMessages({ id }: { id: string }) {
                 </div>
             </div>
         );
-    }, [data.length, status]);
+    }, [messages.length, status]);
+
+    const handleScrollUp = useCallback(() => {
+        if (hasNextPage && !isFetchingNextPage) {
+            fetchNextPage();
+        }
+    }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
     const title = queryClient.getQueryData<Conversation[]>(['conversations'])
         ?.find(c => String(c.id) === String(id))?.title || 'New Conversation';
@@ -272,19 +308,31 @@ export function ChatMessages({ id }: { id: string }) {
             </header>
 
             <div className="flex-1 min-h-0 w-full flex flex-col items-center overflow-hidden relative">
-                {data && data.length > 0 ? (
+                {messages.length > 0 ? (
                     <>
                         <Virtuoso
                             ref={virtuosoRef}
                             className="w-full h-full"
-                            data={data}
+                            data={messages}
                             followOutput="smooth"
                             alignToBottom
-                            initialTopMostItemIndex={data.length - 1}
+                            initialTopMostItemIndex={messages.length - 1}
                             itemContent={renderItem}
                             atBottomStateChange={(atBottom) => setShowScrollButton(!atBottom)}
+                            startReached={handleScrollUp}
                             components={{
-                                Header: () => <div className="h-4" />,
+                                Header: () => (
+                                    <div className="h-10 flex items-center justify-center">
+                                        {isFetchingNextPage && (
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+                                                <div className="w-1 h-1 rounded-full bg-primary/40 animate-bounce" />
+                                                <div className="w-1 h-1 rounded-full bg-primary/40 animate-bounce [animation-delay:-0.15s]" />
+                                                <div className="w-1 h-1 rounded-full bg-primary/40 animate-bounce [animation-delay:-0.3s]" />
+                                                Loading previous messages...
+                                            </div>
+                                        )}
+                                    </div>
+                                ),
                                 Footer: () => <div className="h-32" />,
                             }}
                         />

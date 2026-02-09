@@ -1,7 +1,6 @@
 import cors from "cors";
 import express from "express";
 import { createServer } from "http";
-import { Server as SocketIOServer } from "socket.io";
 
 import { agentRoutes } from "./routes/agent";
 import { historyRoutes } from "./routes/history";
@@ -51,9 +50,24 @@ app.get("/", (req: express.Request, res: express.Response) => {
 app.use("/agent", agentRoutes);
 app.use("/history", historyRoutes);
 
+import { checkpointer, store } from "./services/checkpointer";
+
+(async () => {
+  try {
+    await checkpointer.setup();
+    await store.setup();
+    console.log("✅ PostgresSaver and PostgresStore initialized.");
+  } catch (err) {
+    console.error("❌ Error initializing persistence:", err);
+  }
+})();
+
+
 // Initialize Socket.IO
 const io = initSocket(server);
 (globalThis as any).io = io;
+
+
 // Start server
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Express server is running at http://0.0.0.0:${PORT}`);

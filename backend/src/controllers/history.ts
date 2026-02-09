@@ -1,5 +1,5 @@
 import { ChatOpenAI } from "@langchain/openai";
-import { eq, desc } from "drizzle-orm";
+import { and, desc, eq, lt } from "drizzle-orm";
 import { Request, Response } from 'express';
 import db from "../config/database";
 import { conversationsTable, messagesTable } from "../config/schema";
@@ -8,7 +8,7 @@ import { conversationsTable, messagesTable } from "../config/schema";
 export const historyController = {
     createConversation: async (req: Request, res: Response) => {
         try {
-            const body = req.body as { userId: string};
+            const body = req.body as { userId: string };
             const { userId } = body;
 
             const conversation = await db.insert(conversationsTable).values({ userId }).returning();
@@ -85,8 +85,7 @@ export const historyController = {
     },
     getMessages: async (req: Request, res: Response) => {
         try {
-            const body = req.query as { id: string };
-            const id = body.id;
+            const { id, limit = '20', cursor } = req.query as { id: string, limit?: string, cursor?: string };
             if (!id) {
                 return res.status(400).json({
                     message: 'ID is required',
@@ -94,9 +93,27 @@ export const historyController = {
                 });
             }
 
-            const history = await db.select().from(messagesTable).where(eq(messagesTable.conversationId, id));
+            const limitNum = parseInt(limit);
+
+            let query = db.select()
+                .from(messagesTable)
+                .where(eq(messagesTable.conversationId, id))
+                .orderBy(desc(messagesTable.createdAt))
+                .limit(limitNum);
+
+            if (cursor && cursor !== 'undefined') {
+                query = db.select()
+                    .from(messagesTable)
+                    .where(and(eq(messagesTable.conversationId, id), lt(messagesTable.createdAt, new Date(cursor))))
+                    .orderBy(desc(messagesTable.createdAt))
+                    .limit(limitNum);
+            }
+
+            const history = await query;
+
             return res.json({
-                history,
+                history: history.reverse(), // Reverse to send in ascending order for the page, but the query got the latest
+                nextCursor: history.length === limitNum ? history[0].createdAt : null, // history[0] because it's desc, so last in result is oldest
                 success: true,
             });
         } catch (error) {

@@ -8,7 +8,6 @@ type ChatMessage = {
     socketId: string;
     userId: string;
 };
-
 export default function registerChatHandlers(socket: Socket) {
     socket.on("user_message", async (payload: ChatMessage | { data: ChatMessage }) => {
         try {
@@ -21,13 +20,6 @@ export default function registerChatHandlers(socket: Socket) {
                 socket.emit("error", "Socket.IO server not initialized.");
                 return;
             }
-
-            // Save user message
-            await storeMessage({
-                conversationId,
-                content: userMessage,
-                role: 'user',
-            });
 
             // Stream events from the LangGraph agent
             const eventStream = agent.streamEvents(
@@ -77,15 +69,22 @@ export default function registerChatHandlers(socket: Socket) {
                         chunk: fullAssistantResponse,
                         done: true,
                     });
+
+                    // Save messages
+                    await storeMessage({
+                        conversationId,
+                        content: userMessage,
+                        role: 'user',
+                    });
+
+                    await storeMessage({
+                        conversationId: conversationId!,
+                        content: fullAssistantResponse,
+                        role: 'assistant',
+                    });
                 }
             }
 
-            // Persist the assistant message
-            await storeMessage({
-                conversationId: conversationId!,
-                content: fullAssistantResponse,
-                role: 'assistant',
-            });
         } catch (err) {
             console.error('Error in chat handler:', err);
             socket.emit("error", "Failed to process message");
