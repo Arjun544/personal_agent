@@ -28,7 +28,9 @@ export default function registerChatHandlers(socket: Socket) {
                     version: "v2",
                     configurable: {
                         thread_id: conversationId,
-                        user_id: userId,
+                    },
+                    context: {
+                        userId: userId,
                     }
                 }
             );

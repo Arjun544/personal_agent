@@ -26,6 +26,7 @@ const upsertMemoryTool = tool(
         if (!userId) return "Error: User ID not found in context.";
 
         // Use runtime.store to ensure the operation is bound to the agent's execution
+        // @ts-ignore
         await runtime.store.put(["memories", userId], key, { content });
         return `Successfully remembered ${key}.`;
     },
@@ -48,13 +49,14 @@ const tools = [currentTimeTool, calculateTool, upsertMemoryTool];
 const memoryMiddleware = dynamicSystemPromptMiddleware<z.infer<typeof contextSchema>>(
     async (state, runtime) => {
         const userId = runtime.context?.userId;
-        const store = runtime.store;
+        // @ts-ignore
+        const memoryStore = runtime.store || store;
 
-        if (!userId || !store) return PERSONAL_PROMPT;
+        if (!userId || !memoryStore) return PERSONAL_PROMPT;
 
         try {
             // Search the store using the namespace
-            const items = await store.search(["memories", userId]);
+            const items = await memoryStore.search(["memories", userId]);
             const memoriesContext = items.length > 0
                 ? "\n\n### User Information:\n" + items.map(i => `- ${i.key}: ${i.value.content}`).join("\n")
                 : "";
@@ -66,6 +68,7 @@ const memoryMiddleware = dynamicSystemPromptMiddleware<z.infer<typeof contextSch
         }
     }
 );
+
 /**
  * We use dynamicSystemPromptMiddleware to inject long-term memories into the system prompt.
  */

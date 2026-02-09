@@ -14,5 +14,3 @@ export const store = new PostgresStore({
     connectionOptions: process.env.DATABASE_URL!,
 });
 export { pool };
-
-
