@@ -1,7 +1,10 @@
+import { createClerkClient } from '@clerk/backend';
 import { Request, Response } from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import { agent } from "../services/agent";
 import { storeMessage } from "../services/store";
+
+const clerkClient = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 
 export const agentController = {
     chat: async (req: Request, res: Response) => {
@@ -29,6 +32,17 @@ export const agentController = {
                 role: 'user',
             });
 
+            // Fetch Google OAuth token from Clerk
+            let googleToken: string | undefined;
+            if (userId) {
+                try {
+                    const clerkResponse = await clerkClient.users.getUserOauthAccessToken(userId, 'oauth_google');
+                    googleToken = clerkResponse.data[0]?.token;
+                } catch (error) {
+                    console.error('Error fetching Clerk OAuth token:', error);
+                }
+            }
+
             // Stream events from the LangGraph agent
             const eventStream = agent.streamEvents(
                 { messages: [{ role: "user", content: userMessage }] },
@@ -36,7 +50,10 @@ export const agentController = {
                     version: "v2",
                     configurable: {
                         thread_id: conversationId,
-                        user_id: userId,
+                    },
+                    context: {
+                        userId: userId!,
+                        googleToken: googleToken,
                     }
                 }
             );

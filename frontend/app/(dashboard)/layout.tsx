@@ -6,7 +6,7 @@ import {
 import { AppSidebar } from "@/components/ui/sidebar/app-sidebar";
 import { getQueryClient } from "@/lib/get-query-client";
 import { getConversations } from "@/services/history";
-import { currentUser } from "@clerk/nextjs/server";
+import { clerkClient, currentUser } from "@clerk/nextjs/server";
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 
 
@@ -27,6 +27,14 @@ export default async function DashboardLayout({
     }
 
     const conversations = user ? await getConversations(user.id) : [];
+
+
+    const client = clerkClient();
+
+    const response = await (await client).users.getUserOauthAccessToken(user!.id, 'oauth_google')
+    console.log('response', response.data[0].idToken)
+
+
 
     return (
         <SidebarProvider defaultOpen={true}>

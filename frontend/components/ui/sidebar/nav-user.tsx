@@ -29,16 +29,13 @@ import {
     SidebarMenuItem,
     useSidebar,
 } from "@/components/ui/sidebar"
-import { useAuth, useClerk } from "@clerk/nextjs"
+import { useAuth, useClerk, useUser } from "@clerk/nextjs"
+import { UserResource } from "@clerk/types"
 
 export function NavUser({
     user,
 }: {
-    user: {
-        name: string
-        email: string
-        avatar: string
-    }
+    user: UserResource | null | undefined
 }) {
     const { isMobile } = useSidebar()
     const { isSignedIn } = useAuth()
@@ -55,14 +52,14 @@ export function NavUser({
                             className="h-12 px-2 hover:bg-sidebar-accent/50 transition-all duration-200 rounded-xl data-[state=open]:bg-sidebar-accent"
                         >
                             <Avatar className="h-9 w-9 border-2 border-background shadow-sm">
-                                <AvatarImage src={user.avatar} alt={user.name} />
+                                <AvatarImage src={user?.imageUrl} alt={user?.fullName ?? 'Unkown'} />
                                 <AvatarFallback className="bg-primary/10 text-primary font-bold">
-                                    {user.name.charAt(0)}
+                                    {user?.username?.charAt(0)}
                                 </AvatarFallback>
                             </Avatar>
                             <div className="grid flex-1 text-left text-sm leading-tight ml-1">
-                                <span className="truncate font-semibold text-foreground/90">{user.name}</span>
-                                <span className="truncate text-[10px] text-muted-foreground font-medium uppercase tracking-wider">{user.email.split('@')[0]}</span>
+                                <span className="truncate font-semibold text-foreground/90">{user?.fullName ?? 'Unkown'}</span>
+                                <span className="truncate text-[10px] text-muted-foreground font-medium tracking-wider">{user?.emailAddresses[0].emailAddress}</span>
                             </div>
                             <ChevronsUpDown className="ml-auto size-3.5 text-muted-foreground/50" />
                         </SidebarMenuButton>
@@ -76,12 +73,12 @@ export function NavUser({
                         <DropdownMenuLabel className="p-0 font-normal">
                             <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                                 <Avatar className="h-8 w-8 rounded-lg">
-                                    <AvatarImage src={user.avatar} alt={user.name} />
+                                    <AvatarImage src={user?.imageUrl} alt={user?.fullName ?? 'Unkown'} />
                                     <AvatarFallback className="rounded-lg">CN</AvatarFallback>
                                 </Avatar>
                                 <div className="grid flex-1 text-left text-sm leading-tight">
-                                    <span className="truncate font-medium">{user.name}</span>
-                                    <span className="truncate text-xs">{user.email}</span>
+                                    <span className="truncate font-medium">{user?.fullName ?? 'Unkown'}</span>
+                                    <span className="truncate text-xs">{user?.emailAddresses[0].emailAddress.split('@')[0]}</span>
                                 </div>
                             </div>
                         </DropdownMenuLabel>

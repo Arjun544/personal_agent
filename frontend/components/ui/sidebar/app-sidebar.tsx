@@ -17,6 +17,7 @@ import { NavMain } from "./nav-main"
 import { NavUser } from "./nav-user"
 
 import { usePathname } from "next/navigation"
+import { useUser } from "@clerk/nextjs"
 
 export function AppSidebar({
     conversations,
@@ -25,14 +26,11 @@ export function AppSidebar({
     conversations: Conversation[]
 } & React.ComponentProps<typeof Sidebar>) {
     const pathname = usePathname()
+    const { user } = useUser()
 
     // This is sample data.
     const data = {
-        navUser: {
-            name: "John Doe",
-            email: "john.doe@example.com",
-            avatar: "/logo_svg.svg",
-        },
+        navUser: user,
         navMain: [
             {
                 title: "New Chat",
@@ -70,7 +68,7 @@ export function AppSidebar({
                 <NavHistory conversations={conversations} />
             </SidebarContent>
             <SidebarFooter className="p-4 bg-sidebar/30 border-t border-sidebar-border/50">
-                <NavUser user={data.navUser} />
+               {data.navUser !== null && <NavUser user={data.navUser} />}
             </SidebarFooter>
         </Sidebar>
     )

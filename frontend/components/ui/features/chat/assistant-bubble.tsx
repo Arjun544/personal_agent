@@ -1,6 +1,9 @@
+'use client'
+import { useCopy } from "@/hooks/use-copy";
+
 import { Message } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Loader2, Sparkles, Terminal } from "lucide-react";
+import { Copy, CopyCheck, Loader2, Terminal } from "lucide-react";
 import Image from "next/image";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -14,6 +17,13 @@ interface AssistantBubbleProps {
 export const AssistantBubble = function AssistantBubble({ message, status, isLast }: AssistantBubbleProps) {
     const isStreaming = message.status === 'streaming';
     const showStatus = isLast && (isStreaming || status);
+
+    const { isCopied, copyToClipboard } = useCopy();
+
+    const handleCopy = () => {
+        copyToClipboard(message.content as string);
+    }
+
 
     return (
         <div className="flex flex-col gap-2 max-w-[90%] group animate-in fade-in slide-in-from-bottom-3 duration-700 ease-out">
@@ -96,8 +106,13 @@ export const AssistantBubble = function AssistantBubble({ message, status, isLas
                                     {message.content}
                                 </ReactMarkdown>
                             </div>
+
                         </div>
                     )}
+
+                    {message.content && <div className="flex items-center gap-2 text-muted-foreground/0 group-hover:text-muted-foreground/75 transition-all duration-300 mt-1">
+                        {isCopied ? <CopyCheck size={15} className="cursor-pointer" /> : <Copy size={15} className="cursor-pointer" onClick={handleCopy} />}
+                    </div>}
 
                     {/* Status: Outside Bubble */}
                     {showStatus && status && (
