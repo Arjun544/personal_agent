@@ -31,6 +31,7 @@ export function ChatMessages({ id }: { id: string }) {
     const [isConnected, setIsConnected] = useState(false);
     const [status, setStatus] = useState<string | null>(null);
     const [showScrollButton, setShowScrollButton] = useState(false);
+    const [isStreaming, setIsStreaming] = useState(false);
 
     const renamingId = useRef<string | null>(null);
     const hasSeededFirstMessage = useRef(false);
@@ -104,6 +105,7 @@ export function ChatMessages({ id }: { id: string }) {
     const emitMessage = useCallback(
         (userMessage: string) => {
             setStatus(null);
+            setIsStreaming(true);
             socket.emit('user_message', {
                 conversationId: id,
                 userMessage,
@@ -113,6 +115,27 @@ export function ChatMessages({ id }: { id: string }) {
         },
         [id, user],
     );
+
+    const handleStopStream = useCallback(() => {
+        socket.emit('stop_generation', { conversationId: id });
+        setIsStreaming(false);
+        setStatus(null);
+
+        // Update the last assistant message status to 'done' (or 'aborted')
+        queryClient.setQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id], (old) => {
+            if (!old || old.pages.length === 0) return old;
+            const newPages = [...old.pages];
+            const lastPageIndex = 0;
+            const lastHistory = [...newPages[lastPageIndex].history];
+            const lastIndex = lastHistory.length - 1;
+
+            if (lastIndex >= 0 && lastHistory[lastIndex].role === 'assistant') {
+                lastHistory[lastIndex] = { ...lastHistory[lastIndex], status: 'done' };
+                newPages[lastPageIndex] = { ...newPages[lastPageIndex], history: lastHistory };
+            }
+            return { ...old, pages: newPages };
+        });
+    }, [id, queryClient]);
 
     const sendMessage = useCallback(
         (userMessage: string) => {
@@ -228,7 +251,10 @@ export function ChatMessages({ id }: { id: string }) {
                 return { ...old, pages: newPages };
             });
 
-            if (done) setStatus(null);
+            if (done) {
+                setStatus(null);
+                setIsStreaming(false);
+            }
         };
 
         const onStreamStatus = (payload: { status: string }) => setStatus(payload.status);
@@ -379,7 +405,13 @@ export function ChatMessages({ id }: { id: string }) {
 
             <div className="w-full bg-linear-to-t from-background via-background/95 to-transparent pb-6 pt-4 relative">
                 <div className="max-w-3xl mx-auto px-4">
-                    {user && <InputField onSendMessage={handleSendMessage} />}
+                    {user && (
+                        <InputField
+                            onSendMessage={handleSendMessage}
+                            isStreaming={isStreaming}
+                            onStop={handleStopStream}
+                        />
+                    )}
                     <div className="flex items-center justify-center gap-2 mt-4 opacity-40 hover:opacity-100 transition-opacity duration-500">
                         <div className="h-px w-8 bg-muted-foreground/30" />
                         <p className="text-[10px] font-bold tracking-tighter text-muted-foreground uppercase text-center">

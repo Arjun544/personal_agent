@@ -67,7 +67,7 @@ export function NavHistory({ conversations: initialData }: { conversations: Conv
                                 </p>
                             </div>
                             <SignInButton mode="modal">
-                                <Button size="sm" className="w-full h-8 text-xs font-semibold rounded-lg" variant="secondary">
+                                <Button size="sm" className="w-full h-8 text-xs font-semibold rounded-lg cursor-pointer" variant="secondary">
                                     <LogIn className="mr-2 size-3" />
                                     Sign In
                                 </Button>
@@ -90,41 +90,6 @@ export function NavHistory({ conversations: initialData }: { conversations: Conv
                                 </span>
                             </a>
                         </SidebarMenuButton>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <SidebarMenuAction
-                                    showOnHover
-                                    className="opacity-0 group-hover/item:opacity-100 transition-opacity hover:bg-primary/10 hover:text-primary rounded-md"
-                                >
-                                    <MoreHorizontal className="size-4" />
-                                    <span className="sr-only">More</span>
-                                </SidebarMenuAction>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                                className="w-56 rounded-xl shadow-lg border-sidebar-border"
-                                side={isMobile ? "bottom" : "right"}
-                                align={isMobile ? "end" : "start"}
-                            >
-                                <DropdownMenuItem className="gap-2 cursor-pointer transition-colors">
-                                    <StarOff className="size-4 text-muted-foreground" />
-                                    <span>Remove from Favorites</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem className="gap-2 cursor-pointer transition-colors">
-                                    <LinkIcon className="size-4 text-muted-foreground" />
-                                    <span>Copy Link</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem className="gap-2 cursor-pointer transition-colors">
-                                    <ArrowUpRight className="size-4 text-muted-foreground" />
-                                    <span>Open in New Tab</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem className="gap-2 cursor-pointer transition-colors text-destructive focus:text-destructive">
-                                    <Trash2 className="size-4" />
-                                    <span>Delete Chat</span>
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
                     </SidebarMenuItem>
                 ))}
             </SidebarMenu>

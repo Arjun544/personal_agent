@@ -6,9 +6,9 @@ import { Conversation } from "@/lib/types";
 import { createConversation } from "@/services/history";
 import { useUser } from "@clerk/nextjs";
 import { useMutation } from "@tanstack/react-query";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import Image from "next/image";
 
 export default function NewChatPage() {
     const router = useRouter();
@@ -16,6 +16,13 @@ export default function NewChatPage() {
 
     const createConversationMutation = useMutation({
         mutationKey: ['create_conversation'],
+        onMutate: (payload: { userId: string; message: string }) => {
+            if (!payload.userId) {
+                console.error("User not found in payload", payload);
+                toast.error("User not found");
+                return;
+            }
+        },
         mutationFn: (payload: { userId: string; message: string }) =>
             createConversation(payload.userId, payload.message),
 
@@ -36,8 +43,30 @@ export default function NewChatPage() {
 
     const handleSend = async (message: string) => {
         const trimmed = message.trim();
-        if (!trimmed || !user?.id) return;
+        if (!user?.id) {
+            showLoginToast();
+            return;
+        }
+        if (!trimmed) return;
         createConversationMutation.mutate({ userId: user.id, message: trimmed });
+    }
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, message: string) => {
+        console.log(message);
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            const trimmed = message.trim();
+            if (!user?.id) {
+                showLoginToast();
+                return;
+            }
+            if (!trimmed) return;
+            createConversationMutation.mutate({ userId: user.id, message: trimmed });
+        }
+    };
+
+    const showLoginToast = () => {
+        toast.info("Please login to continue")
     }
 
     return (
@@ -74,14 +103,15 @@ export default function NewChatPage() {
                 </div>
             </div>
 
-            <div className="w-full bg-gradient-to-t from-background via-background/95 to-transparent pb-6 pt-4 relative">
+            <div className="w-full bg-linear-to-t from-background via-background/95 to-transparent pb-6 pt-4 relative">
                 <div className="max-w-3xl mx-auto px-4">
-                    {user && (
-                        <InputField
-                            onSendMessage={handleSend}
-                            disabled={createConversationMutation.isPending}
-                        />
-                    )}
+
+                    <InputField
+                        onSendMessage={handleSend}
+                        onKeyDown={handleKeyDown}
+                        disabled={createConversationMutation.isPending}
+                    />
+
                     <div className="flex items-center justify-center gap-2 mt-4 opacity-40 hover:opacity-100 transition-opacity duration-500">
                         <div className="h-px w-8 bg-muted-foreground/30" />
                         <p className="text-[10px] font-bold tracking-tighter text-muted-foreground uppercase text-center">

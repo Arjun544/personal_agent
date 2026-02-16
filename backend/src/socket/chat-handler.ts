@@ -9,8 +9,16 @@ type ChatMessage = {
     userId: string;
 };
 export default function registerChatHandlers(socket: Socket) {
+    let stopSignal = false;
+
+    socket.on("stop_generation", (payload: { conversationId: string }) => {
+        console.log('stop_generation received for', payload.conversationId);
+        stopSignal = true;
+    });
+
     socket.on("user_message", async (payload: ChatMessage | { data: ChatMessage }) => {
         try {
+            stopSignal = false;
             const data = "data" in payload ? payload.data : payload;
             const { conversationId, userMessage, socketId, userId } = data;
             console.log('user_message received', conversationId, userMessage, socketId, userId);
@@ -37,6 +45,11 @@ export default function registerChatHandlers(socket: Socket) {
 
             let fullAssistantResponse = '';
             for await (const event of eventStream) {
+                if (stopSignal) {
+                    console.log('Stopping generation as per stopSignal');
+                    break;
+                }
+
                 // 1. Stream tokens to the UI
                 if (event.event === "on_chat_model_stream") {
                     const content = event.data.chunk.content;
