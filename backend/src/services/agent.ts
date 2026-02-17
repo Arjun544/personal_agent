@@ -1,10 +1,10 @@
 import { tool } from "@langchain/core/tools";
-import { ChatOpenAI } from "@langchain/openai";
+import { ChatOpenAI, tools as openAItools } from "@langchain/openai";
 import { createAgent, dynamicSystemPromptMiddleware } from "langchain";
 import { z } from "zod";
 import { createCalendarEvent, listCalendarEvents } from "../config/googleCalendar";
 import { PERSONAL_PROMPT } from "../prompts/personal";
-import { calculateTool } from "../tools/calculate-tool";
+import { Calculator } from "@langchain/community/tools/calculator";
 import { currentTimeTool } from "../tools/current-time-tool";
 import { checkpointer } from "./checkpointer";
 import { saveMemory, searchMemory } from "./memory";
@@ -111,7 +111,8 @@ const googleCalendarListTool = tool(
 // Define tools available to the agent
 const tools = [
     currentTimeTool,
-    calculateTool,
+    new Calculator(),
+    openAItools.webSearch(),
     upsertMemoryTool,
     googleCalendarCreateTool,
     googleCalendarListTool,

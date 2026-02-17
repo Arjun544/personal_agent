@@ -25,6 +25,8 @@ router.post("/create", requireAuth, historyController.createConversation);
 router.post("/rename", requireAuth, validate(renameSchema), historyController.generateConversationName);
 router.get("/conversations", requireAuth, historyController.getConversations);
 router.get("/messages", requireAuth, validate(getMessagesSchema), historyController.getMessages);
+router.delete("/conversation/:id", requireAuth, historyController.deleteConversation);
+router.delete("/message", requireAuth, historyController.deleteMessage);
 
 export { router as historyRoutes };
 

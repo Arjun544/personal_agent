@@ -1,4 +1,7 @@
 import { createClerkClient } from '@clerk/backend';
+import { AIMessageChunk } from '@langchain/core/messages';
+import { StreamEvent } from '@langchain/core/tracers/log_stream';
+import { IterableReadableStream } from '@langchain/core/utils/stream';
 import type { Socket } from "socket.io";
 import { agent } from "../services/agent";
 import { storeMessage } from "../services/store";
@@ -44,62 +47,109 @@ export default function registerChatHandlers(socket: Socket) {
                 }
             }
 
-            // Stream events from the LangGraph agent
-            const eventStream = agent.streamEvents(
+            const eventStream: IterableReadableStream<StreamEvent> = agent.streamEvents(
                 { messages: [{ role: "user", content: userMessage }] },
                 {
                     version: "v2",
-                    configurable: {
-                        thread_id: conversationId,
-                    },
-                    context: {
-                        userId: userId,
-                        googleToken: googleToken,
-                    }
+                    configurable: { thread_id: conversationId },
+                    context: { userId, googleToken }
                 }
             );
 
-            let fullAssistantResponse = '';
+            let fullAssistantResponse: string = "";
+
             for await (const event of eventStream) {
-                if (stopSignal) {
-                    break;
-                }
+                if (stopSignal) break;
 
-                // 1. Stream tokens to the UI
+                // 2. Filter for chat model stream events
                 if (event.event === "on_chat_model_stream") {
-                    const content = event.data.chunk.content;
-                    if (content) {
-                        socket.emit('stream:status', { status: null });
+                    const chunk = event.data.chunk as AIMessageChunk;
 
-                        fullAssistantResponse += content;
-                        socket.emit('stream:chunk', {
-                            chunk: content,
-                            done: false,
-                        });
+                    // chunk.text is the standard way to get string tokens in v1
+                    const token: string = chunk.text;
+
+                    if (token) {
+                        socket.emit('stream:status', { status: null });
+                        fullAssistantResponse += token;
+                        socket.emit('stream:chunk', { chunk: token, done: false });
+                    }
+
+                    // 3. Type-safe check for server-side tools (like webSearch)
+                    // These are emitted as blocks inside the message content
+                    if (Array.isArray(chunk.content)) {
+                        const blocks = chunk.content as any[];
+                        const hasWebSearch = blocks.some((block: any) =>
+                            block.type === "server_tool_call_chunk" && block.name === "web_search"
+                        );
+
+                        if (hasWebSearch) {
+                            socket.emit('stream:status', { status: "Searching the web..." });
+                        }
                     }
                 }
 
-                // 2. Stream tool calls with user-friendly messages
+                // 4. Filter for tool start events (for your custom tools)
                 if (event.event === "on_tool_start") {
+                    // event.name is typed as string in StreamEvent
                     const toolMessages: Record<string, string> = {
                         "get_current_time": "Checking the time...",
                         "create_calendar_event": "Scheduling your meeting...",
                         "list_calendar_events": "Checking your calendar...",
                         "upsert_memory": "Remembering this for you...",
-                        "calculate": "Doing some math...",
+                        "calculate": "Doing some math..."
                     };
 
-                    const status = toolMessages[event.name] || `Using ${event.name}`;
+                    const status: string = toolMessages[event.name] || `Using ${event.name}`;
                     socket.emit('stream:status', { status });
                 }
 
-                // 3. Thinking status
                 if (event.event === "on_chat_model_start") {
-                    socket.emit('stream:status', {
-                        status: "Thinking",
-                    });
-                }
+                        socket.emit('stream:status', {
+                            status: "Thinking",
+                        });
+                    }
             }
+            // for await (const event of eventStream) {
+            //     if (stopSignal) {
+            //         break;
+            //     }
+
+            //     // 1. Stream tokens to the UI
+            //     if (event.event === "on_chat_model_stream") {
+            //         const content = event.data.chunk.content;
+            //         if (content) {
+            //             socket.emit('stream:status', { status: null });
+
+            //             fullAssistantResponse += content;
+            //             socket.emit('stream:chunk', {
+            //                 chunk: content,
+            //                 done: false,
+            //             });
+            //         }
+            //     }
+
+            //     // 2. Stream tool calls with user-friendly messages
+            //     if (event.event === "on_tool_start") {
+            //         const toolMessages: Record<string, string> = {
+            //             "get_current_time": "Checking the time...",
+            //             "create_calendar_event": "Scheduling your meeting...",
+            //             "list_calendar_events": "Checking your calendar...",
+            //             "upsert_memory": "Remembering this for you...",
+            //             "calculate": "Doing some math...",
+            //             "webSearch": "Searching the web...",
+            //         };
+
+            //         const status = toolMessages[event.name] || `Using ${event.name}`;
+            //         socket.emit('stream:status', { status });
+            //     }
+
+            //     // 3. Thinking status
+            //     if (event.event === "on_chat_model_start") {
+            //         socket.emit('stream:status', {
+            //             status: "Thinking",
+            //         });
+            //     }
+            // }
 
             // Signal completion to the client after all events are processed
             socket.emit('stream:chunk', {

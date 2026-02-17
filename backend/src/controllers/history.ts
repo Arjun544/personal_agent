@@ -5,6 +5,8 @@ import db from "../config/database";
 import { conversationsTable, messagesTable } from "../config/schema";
 import { asyncHandler } from "../middleware/error-handler";
 import { CONVERSATION_TITLE_PROMPT } from "../prompts/conversation-title";
+import { CacheService } from "../services/cache";
+import { CacheKeys } from "../utils/cache_keys";
 import { ForbiddenError, UnauthorizedError, ValidationError } from "../utils/errors";
 import { ApiResponse } from "../utils/response";
 
@@ -17,6 +19,10 @@ export const historyController = {
         }
 
         const conversation = await db.insert(conversationsTable).values({ userId }).returning();
+
+        // Invalidate conversations cache for this user
+        await CacheService.delete(CacheKeys.conversations(userId));
+
         return ApiResponse.success(res, { conversation: conversation[0] });
     }),
 
@@ -26,6 +32,15 @@ export const historyController = {
             throw new UnauthorizedError();
         }
 
+        // Try to get from cache first
+        const cacheKey = CacheKeys.conversations(userId);
+        const cachedData = await CacheService.get<any>(cacheKey);
+
+        if (cachedData) {
+            return ApiResponse.success(res, { history: cachedData });
+        }
+
+        // If not in cache, fetch from database
         const conversations = await db.select()
             .from(conversationsTable)
             .where(eq(conversationsTable.userId, userId))
@@ -48,6 +63,9 @@ export const historyController = {
             })
         );
 
+        // Cache the result for 5 minutes (300 seconds)
+        await CacheService.set(cacheKey, conversationsWithFirstMessage, 300);
+
         return ApiResponse.success(res, { history: conversationsWithFirstMessage });
     }),
 
@@ -69,6 +87,15 @@ export const historyController = {
             throw new ForbiddenError("You do not have access to this conversation");
         }
 
+        // Try to get from cache first
+        const cacheKey = CacheKeys.messages(id, limit, cursor);
+        const cachedData = await CacheService.get<any>(cacheKey);
+
+        if (cachedData) {
+            return ApiResponse.success(res, cachedData);
+        }
+
+        // If not in cache, fetch from database
         const limitNum = parseInt(limit);
 
         let query = db.select()
@@ -87,10 +114,15 @@ export const historyController = {
 
         const history = await query;
 
-        return ApiResponse.success(res, {
+        const responseData = {
             history: history.reverse(),
             nextCursor: history.length === limitNum ? history[0].createdAt : null,
-        });
+        };
+
+        // Cache the result for 5 minutes (300 seconds)
+        await CacheService.set(cacheKey, responseData, 300);
+
+        return ApiResponse.success(res, responseData);
     }),
 
     generateConversationName: asyncHandler(async (req: Request | any, res: Response) => {
@@ -131,6 +163,57 @@ export const historyController = {
             .where(eq(conversationsTable.id, id))
             .returning();
 
+        // Invalidate conversations cache for this user
+        await CacheService.delete(CacheKeys.conversations(userId));
+
         return ApiResponse.success(res, { conversation: updated[0] });
+    }),
+    
+    deleteConversation: asyncHandler(async (req: Request | any, res: Response) => {
+        const userId = req.auth?.userId;
+        const { id } = req.params as { id: string };
+
+        if (!id) {
+            throw new ValidationError("ID is required");
+        }
+
+        // Verify ownership
+        const conv = await db.select()
+            .from(conversationsTable)
+            .where(and(eq(conversationsTable.id, id), eq(conversationsTable.userId, userId)))
+            .limit(1);
+
+        if (conv.length === 0) {
+            throw new ForbiddenError("You do not have access to this conversation");
+        }
+
+        const { deleteConversation: deleteConv } = await import("../services/store");
+        await deleteConv(id, userId);
+
+        return ApiResponse.success(res, { message: "Conversation deleted successfully" });
+    }),
+
+    deleteMessage: asyncHandler(async (req: Request | any, res: Response) => {
+        const userId = req.auth?.userId;
+        const { id, conversationId } = req.body as { id: string, conversationId: string };
+
+        if (!id || !conversationId) {
+            throw new ValidationError("Message ID and Conversation ID are required");
+        }
+
+        // Verify ownership of the conversation
+        const conv = await db.select()
+            .from(conversationsTable)
+            .where(and(eq(conversationsTable.id, conversationId), eq(conversationsTable.userId, userId)))
+            .limit(1);
+
+        if (conv.length === 0) {
+            throw new ForbiddenError("You do not have access to this conversation");
+        }
+
+        const { deleteMessage: deleteMsg } = await import("../services/store");
+        await deleteMsg(id, conversationId, userId);
+
+        return ApiResponse.success(res, { message: "Message deleted successfully" });
     })
 }
