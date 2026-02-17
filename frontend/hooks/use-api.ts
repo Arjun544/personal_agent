@@ -20,7 +20,25 @@ export const useApi = () => {
             return config;
         });
 
+        instance.interceptors.response.use(
+            (response) => {
+                if (response.data && response.data.status === 'success' && 'data' in response.data) {
+                    return {
+                        ...response,
+                        data: response.data.data
+                    };
+                }
+                return response;
+            },
+            (error) => {
+                const message = error.response?.data?.message || error.message;
+                console.error('API Error:', message);
+                return Promise.reject(error);
+            }
+        );
+
         return instance;
+
     }, [getToken]);
 
     return api;

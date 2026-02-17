@@ -1,18 +1,29 @@
+import { ClerkExpressWithAuth } from "@clerk/clerk-sdk-node";
+import compression from "compression";
 import cors from "cors";
 import express from "express";
+import helmet from "helmet";
 import { createServer } from "http";
 
+import { errorHandler } from "./middleware/error-handler";
+import { logger, requestLogger } from "./middleware/logger";
+import { apiLimiter } from "./middleware/rate-limit";
 import { agentRoutes } from "./routes/agent";
 import { historyRoutes } from "./routes/history";
+import { checkpointer, store } from "./services/checkpointer";
 import { initSocket } from "./socket";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 5000;
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
-import { ClerkExpressWithAuth } from "@clerk/clerk-sdk-node";
-
 const app = express();
 const server = createServer(app);
+
+// Security middleware
+app.use(helmet());
+
+// Compression
+app.use(compression());
 
 // Clerk middleware
 app.use(ClerkExpressWithAuth());
@@ -27,13 +38,11 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) return callback(null, true);
-
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        console.warn(`CORS blocked origin: ${origin}`);
+        logger.warn(`CORS blocked origin: ${origin}`);
         callback(new Error("Not allowed by CORS"));
       }
     },
@@ -43,39 +52,57 @@ app.use(
   })
 );
 
+// Logging
+app.use(requestLogger);
+
+// Rate Limiting
+app.use("/agent", apiLimiter); // Apply to sensitive routes
+
 // Body parsing middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Routes
 app.get("/", (req: express.Request, res: express.Response) => {
-  res.send("Hello Express");
+  res.send("Agent Backend is running");
 });
 
 app.use("/agent", agentRoutes);
 app.use("/history", historyRoutes);
 
-import { checkpointer, store } from "./services/checkpointer";
+// Error Handling (must be after routes)
+app.use(errorHandler);
 
+// Persistence initialization
 (async () => {
   try {
     await checkpointer.setup();
     await store.setup();
-    console.log("✅ PostgresSaver and PostgresStore initialized.");
+    logger.info("✅ PostgresSaver and PostgresStore initialized.");
   } catch (err) {
-    console.error("❌ Error initializing persistence:", err);
+    logger.error({ err }, "❌ Error initializing persistence:");
   }
 })();
-
 
 // Initialize Socket.IO
 const io = initSocket(server);
 (globalThis as any).io = io;
 
-
 // Start server
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Express server is running at http://0.0.0.0:${PORT}`);
-  console.log(`🔌 Socket.IO server initialized on port ${PORT}`);
-  console.log(`🔗 CORS enabled for: ${FRONTEND_URL}`);
+  logger.info(`🚀 Express server is running at http://0.0.0.0:${PORT}`);
+  logger.info(`🔌 Socket.IO server initialized on port ${PORT}`);
+  logger.info(`🔗 CORS enabled for: ${FRONTEND_URL}`);
 });
+
+// Graceful shutdown
+const shutdown = async () => {
+  logger.info("Shutting down server...");
+  server.close(async () => {
+    logger.info("HTTP server closed.");
+    process.exit(0);
+  });
+};
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

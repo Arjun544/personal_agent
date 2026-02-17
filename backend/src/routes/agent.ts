@@ -1,37 +1,19 @@
-import express, { Router } from "express";
+import { Router } from "express";
 import { z } from "zod";
+import { requireAuth } from "../middleware/auth";
+import { validate } from "../middleware/validation";
 import { agentController } from "../controllers/agent";
 
 const router = Router();
 
-// Validation schema
-const chatBodySchema = z.object({
-    userId: z.string().optional(),
-    agent: z.string().default("Personal"),
-    message: z.string().optional(),
-    socketId: z.string().optional(),
+const chatSchema = z.object({
+    body: z.object({
+        message: z.string().min(1, "Message is required"),
+        threadId: z.string().optional(),
+        agent: z.string().optional().default("Personal"),
+    }),
 });
 
-// Validation middleware
-const validateChatBody = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    try {
-        chatBodySchema.parse(req.body);
-        next();
-    } catch (error) {
-        if (error instanceof z.ZodError) {
-            return res.status(400).json({
-                message: "Validation error",
-                errors: error.errors,
-                success: false,
-            });
-        }
-        next(error);
-    }
-};
-
-import { requireAuth } from "../middleware/auth";
-
-router.post("/chat", requireAuth, validateChatBody, agentController.chat);
+router.post("/chat", requireAuth, validate(chatSchema), agentController.chat);
 
 export { router as agentRoutes };
-

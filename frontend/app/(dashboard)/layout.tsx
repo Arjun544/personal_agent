@@ -9,8 +9,6 @@ import { getConversations } from "@/services/history";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 
-
-
 export default async function DashboardLayout({
     children,
 }: {
@@ -24,11 +22,12 @@ export default async function DashboardLayout({
     if (user && token) {
         await queryClient.prefetchQuery({
             queryKey: ['conversations'],
-            queryFn: () => getConversations(user.id, token),
+            queryFn: () => getConversations(token),
         });
     }
 
-    const conversations = user && token ? await getConversations(user.id, token) : [];
+    const conversations = user && token ? await getConversations(token) : [];
+
 
     return (
         <SidebarProvider defaultOpen={true}>

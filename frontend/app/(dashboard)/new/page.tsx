@@ -26,8 +26,9 @@ export default function NewChatPage() {
         },
         mutationFn: async (payload: { userId: string; message: string }) => {
             const token = await getToken();
-            return createConversation(payload.userId, payload.message, token || undefined);
+            return createConversation(token || undefined);
         },
+
 
         onSuccess: async (data, payload) => {
             if (!data) {

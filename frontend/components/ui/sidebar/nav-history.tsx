@@ -29,8 +29,9 @@ export function NavHistory({ conversations: initialData }: { conversations: Conv
         queryKey: ['conversations'],
         queryFn: async () => {
             const token = await getToken();
-            return getConversations(user!.id, token || undefined);
+            return getConversations(token || undefined);
         },
+
         initialData: initialData,
         enabled: !!user?.id,
     });

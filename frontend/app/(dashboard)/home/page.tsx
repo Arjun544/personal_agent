@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { useApi } from "@/hooks/use-api";
 import { createSocket } from "@/lib/socket";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { Send } from "lucide-react";
@@ -10,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Socket } from "socket.io-client";
+
 
 interface Message {
     id: string;
@@ -118,6 +120,8 @@ export default function DashboardPage() {
         };
     }, [getToken]);
 
+    const api = useApi();
+
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
 
@@ -150,26 +154,15 @@ export default function DashboardPage() {
         ]);
 
         try {
-            const token = await getToken();
-            const response = await fetch(`${BACKEND_URL}/agent/chat`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                    message: messageText,
-                    conversationId: conversationId || undefined,
-                    socketId: socketId || undefined,
-                    userId: user?.id,
-                }),
+            const response = await api.post("/agent/chat", {
+                message: messageText,
+                threadId: conversationId || undefined,
+                socketId: socketId || undefined,
+                userId: user?.id,
             });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
+            const data = response.data;
 
-            const data = await response.json();
 
             // If no socketId was provided or streaming failed, use regular response
             if (!socketId || !data.socketId) {

@@ -2,10 +2,10 @@ import axiosInstance from "@/lib/axios";
 import { Conversation, Message } from "@/lib/types";
 
 
-export const createConversation = async (userId: string, message: string, token?: string): Promise<Conversation | undefined> => {
+export const createConversation = async (token?: string): Promise<Conversation | undefined> => {
     try {
         const response = await axiosInstance.post(`/history/create`,
-            { userId, message },
+            {},
             token ? { headers: { Authorization: `Bearer ${token}` } } : {}
         );
         return response.data.conversation;
@@ -26,9 +26,9 @@ export const renameConversation = async (id: string, message: string, token?: st
     }
 }
 
-export const getConversations = async (userId: string, token?: string): Promise<Conversation[]> => {
+export const getConversations = async (token?: string): Promise<Conversation[]> => {
     try {
-        const response = await axiosInstance.get(`/history/conversations?id=${userId}`,
+        const response = await axiosInstance.get(`/history/conversations`,
             token ? { headers: { Authorization: `Bearer ${token}` } } : {}
         );
         return response.data.history || [];
