@@ -1,31 +1,17 @@
 "use client"
 
 import {
-    ArrowUpRight,
-    Link as LinkIcon,
-    LogIn,
-    MoreHorizontal,
-    StarOff,
-    Trash2,
+    LogIn
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
     SidebarGroup,
     SidebarGroupLabel,
     SidebarMenu,
-    SidebarMenuAction,
     SidebarMenuButton,
-    SidebarMenuItem,
-    useSidebar,
+    SidebarMenuItem
 } from "@/components/ui/sidebar"
 import { Conversation } from "@/lib/types"
 import { getConversations } from "@/services/history"
@@ -35,7 +21,6 @@ import { useQuery } from "@tanstack/react-query"
 import { usePathname } from "next/navigation"
 
 export function NavHistory({ conversations: initialData }: { conversations: Conversation[] }) {
-    const { isMobile } = useSidebar()
     const { isSignedIn } = useAuth()
     const { user } = useUser()
     const pathname = usePathname()

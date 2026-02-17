@@ -7,15 +7,17 @@ import { storeMessage } from "../services/store";
 const clerkClient = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 
 export const agentController = {
-    chat: async (req: Request, res: Response) => {
+    chat: async (req: Request | any, res: Response) => {
         try {
             const body = req.body as { message?: string; socketId: string; agent?: string; userId?: string; conversationId?: string };
-            const userId = body?.userId;
+            const userId = req.auth?.userId;
+            if (!userId) {
+                return res.status(401).json({ message: "Unauthorized", success: false });
+            }
             const userMessage = body?.message || 'Hello! How can I help you today?';
             const socketId = body.socketId;
             const conversationId = body.conversationId;
 
-            // Get Socket.IO instance
             const io = (globalThis as any).io as SocketIOServer;
 
             if (!io) {
@@ -23,6 +25,18 @@ export const agentController = {
                     message: 'Socket.IO server not initialized.',
                     success: false,
                 });
+            }
+
+            // Verify socket association
+            if (socketId) {
+                const targetSocket = io.sockets.sockets.get(socketId);
+                if (!targetSocket || targetSocket.data.userId !== userId) {
+                    console.warn(`Unauthorized socket attempt: socket ${socketId} does not belong to user ${userId}`);
+                    return res.status(403).json({
+                        message: 'Forbidden: Invalid socket association',
+                        success: false,
+                    });
+                }
             }
 
             // Save user message
@@ -63,12 +77,29 @@ export const agentController = {
                 if (event.event === "on_chat_model_stream") {
                     const content = event.data.chunk.content;
                     if (content) {
+                        io.to(socketId).emit('stream:status', { status: null });
                         fullAssistantResponse += content;
                         io.to(socketId).emit('stream:chunk', {
                             chunk: content,
                             done: false,
                         });
                     }
+                }
+
+                if (event.event === "on_tool_start") {
+                    const toolMessages: Record<string, string> = {
+                        "get_current_time": "Checking the time...",
+                        "create_calendar_event": "Scheduling your meeting...",
+                        "list_calendar_events": "Checking your calendar...",
+                        "upsert_memory": "Remembering this for you...",
+                        "calculate": "Doing some math...",
+                    };
+                    const status = toolMessages[event.name] || `Using ${event.name}`;
+                    io.to(socketId).emit('stream:status', { status });
+                }
+
+                if (event.event === "on_chat_model_start") {
+                    io.to(socketId).emit('stream:status', { status: "Thinking" });
                 }
             }
 

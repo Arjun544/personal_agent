@@ -3,12 +3,13 @@
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { useUser } from "@clerk/nextjs";
+import { createSocket } from "@/lib/socket";
+import { useAuth, useUser } from "@clerk/nextjs";
 import { Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { io, Socket } from "socket.io-client";
+import { Socket } from "socket.io-client";
 
 interface Message {
     id: string;
@@ -30,92 +31,92 @@ export default function DashboardPage() {
     const socketRef = useRef<Socket | null>(null);
     const streamingMessageIdRef = useRef<string | null>(null);
     const { user } = useUser();
+    const { getToken } = useAuth();
 
     // Initialize Socket.IO connection
     useEffect(() => {
-        const socket = io(BACKEND_URL, {
-            transports: ["websocket", "polling"],
-            path: "/socket.io/",
-            reconnection: true,
-            reconnectionDelay: 1000,
-            reconnectionAttempts: 5,
-            timeout: 20000,
-        });
+        const initSocket = async () => {
+            const token = await getToken();
 
-        socket.on("connect", () => {
-            console.log("Connected to backend:", socket.id);
-            setSocketId(socket.id || null);
-        });
+            const socket = createSocket(token || undefined);
 
-        socket.on("connect_error", (error) => {
-            console.error("Socket connection error:", error);
-            console.error("Attempting to connect to:", BACKEND_URL);
-        });
+            socket.on("connect", () => {
+                console.log("Connected to backend:", socket.id);
+                setSocketId(socket.id || null);
+            });
 
-        socket.on("socket:connected", (data: { socketId: string }) => {
-            console.log("Socket ID received:", data.socketId);
-            setSocketId(data.socketId);
-        });
+            socket.on("connect_error", (error) => {
+                console.error("Socket connection error:", error);
+                console.error("Attempting to connect to:", BACKEND_URL);
+            });
 
-        socket.on("stream:chunk", (data: { chunk: string; done: boolean }) => {
-            if (data.done) {
+            socket.on("socket:connected", (data: { socketId: string }) => {
+                console.log("Socket ID received:", data.socketId);
+                setSocketId(data.socketId);
+            });
+
+            socket.on("stream:chunk", (data: { chunk: string; done: boolean }) => {
+                if (data.done) {
+                    setIsLoading(false);
+                    streamingMessageIdRef.current = null;
+                    return;
+                }
+
+                setMessages((prev) => {
+                    const lastMessage = prev[prev.length - 1];
+                    if (
+                        lastMessage?.role === "assistant" &&
+                        lastMessage.id === streamingMessageIdRef.current
+                    ) {
+                        return prev.map((msg) =>
+                            msg.id === streamingMessageIdRef.current
+                                ? { ...msg, content: msg.content + data.chunk }
+                                : msg
+                        );
+                    }
+                    return prev;
+                });
+            });
+
+            socket.on("stream:complete", (data: { message: string }) => {
                 setIsLoading(false);
                 streamingMessageIdRef.current = null;
-                return;
-            }
-
-            setMessages((prev) => {
-                const lastMessage = prev[prev.length - 1];
-                if (
-                    lastMessage?.role === "assistant" &&
-                    lastMessage.id === streamingMessageIdRef.current
-                ) {
-                    return prev.map((msg) =>
-                        msg.id === streamingMessageIdRef.current
-                            ? { ...msg, content: msg.content + data.chunk }
-                            : msg
-                    );
-                }
-                return prev;
             });
-        });
 
-        socket.on("stream:complete", (data: { message: string }) => {
-            setIsLoading(false);
-            streamingMessageIdRef.current = null;
-        });
-
-        socket.on("stream:error", (data: { error: string }) => {
-            console.error("Stream error:", data.error);
-            setIsLoading(false);
-            setMessages((prev) => {
-                const lastMessage = prev[prev.length - 1];
-                if (
-                    lastMessage?.role === "assistant" &&
-                    lastMessage.id === streamingMessageIdRef.current
-                ) {
-                    return prev.map((msg) =>
-                        msg.id === streamingMessageIdRef.current
-                            ? { ...msg, content: msg.content + `\n\nError: ${data.error}` }
-                            : msg
-                    );
-                }
-                return prev;
+            socket.on("stream:error", (data: { error: string }) => {
+                console.error("Stream error:", data.error);
+                setIsLoading(false);
+                setMessages((prev) => {
+                    const lastMessage = prev[prev.length - 1];
+                    if (
+                        lastMessage?.role === "assistant" &&
+                        lastMessage.id === streamingMessageIdRef.current
+                    ) {
+                        return prev.map((msg) =>
+                            msg.id === streamingMessageIdRef.current
+                                ? { ...msg, content: msg.content + `\n\nError: ${data.error}` }
+                                : msg
+                        );
+                    }
+                    return prev;
+                });
+                streamingMessageIdRef.current = null;
             });
-            streamingMessageIdRef.current = null;
-        });
 
-        socket.on("disconnect", () => {
-            console.log("Disconnected from backend");
-            setSocketId(null);
-        });
+            socket.on("disconnect", () => {
+                console.log("Disconnected from backend");
+                setSocketId(null);
+            });
 
-        socketRef.current = socket;
+            socketRef.current = socket;
+        };
+
+        initSocket();
 
         return () => {
-            socket.disconnect();
+            socketRef.current?.disconnect();
         };
-    }, []);
+    }, [getToken]);
 
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
@@ -149,10 +150,12 @@ export default function DashboardPage() {
         ]);
 
         try {
+            const token = await getToken();
             const response = await fetch(`${BACKEND_URL}/agent/chat`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`,
                 },
                 body: JSON.stringify({
                     message: messageText,

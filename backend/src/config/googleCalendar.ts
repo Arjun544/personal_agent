@@ -17,12 +17,6 @@ export async function createCalendarEvent(
         auth: oauth2Client,
     })
 
-    console.log("Inserting event with payload:", {
-        summary: eventDetails.summary,
-        start: eventDetails.start,
-        end: eventDetails.end,
-    });
-
     const event = await calendar.events.insert({
         calendarId: "primary",
         requestBody: {

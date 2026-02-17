@@ -48,7 +48,7 @@ export const AssistantBubble = function AssistantBubble({ message, status, isLas
                 <div className="flex-1 flex flex-col gap-3 min-w-0">
                     {message.content && (
                         <div className={cn(
-                            "relative px-6 py-5 rounded-3xl transition-all duration-500",
+                            "relative px-6 py-3 rounded-2xl transition-all duration-500",
                             "bg-card/50 backdrop-blur-xl border border-border/40 shadow-sm",
                         )}>
                             <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:my-0 prose-pre:bg-transparent prose-pre:p-0">

@@ -29,7 +29,9 @@ const validateChatBody = (req: express.Request, res: express.Response, next: exp
     }
 };
 
-router.post("/chat", validateChatBody, agentController.chat);
+import { requireAuth } from "../middleware/auth";
+
+router.post("/chat", requireAuth, validateChatBody, agentController.chat);
 
 export { router as agentRoutes };
 

@@ -4,7 +4,7 @@ import { InputField } from "@/components/ui/features/chat/input-field";
 import { getQueryClient } from "@/lib/get-query-client";
 import { Conversation } from "@/lib/types";
 import { createConversation } from "@/services/history";
-import { useUser } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import { useMutation } from "@tanstack/react-query";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -13,6 +13,7 @@ import { toast } from "sonner";
 export default function NewChatPage() {
     const router = useRouter();
     const { user } = useUser();
+    const { getToken } = useAuth();
 
     const createConversationMutation = useMutation({
         mutationKey: ['create_conversation'],
@@ -23,8 +24,10 @@ export default function NewChatPage() {
                 return;
             }
         },
-        mutationFn: (payload: { userId: string; message: string }) =>
-            createConversation(payload.userId, payload.message),
+        mutationFn: async (payload: { userId: string; message: string }) => {
+            const token = await getToken();
+            return createConversation(payload.userId, payload.message, token || undefined);
+        },
 
         onSuccess: async (data, payload) => {
             if (!data) {
@@ -52,7 +55,6 @@ export default function NewChatPage() {
     }
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, message: string) => {
-        console.log(message);
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             const trimmed = message.trim();

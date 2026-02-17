@@ -7,8 +7,8 @@ export interface Conversation {
 
 export interface Message {
     id: string;
-    conversationId: number;
-    role:          "user" | "assistant";
+    conversationId: string;
+    role: "user" | "assistant";
     content: string;
     createdAt: string;
     status: "sending" | "streaming" | "done" | "error";

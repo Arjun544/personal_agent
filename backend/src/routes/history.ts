@@ -3,9 +3,11 @@ import { historyController } from "../controllers/history";
 
 const router = Router();
 
-router.post("/create", historyController.createConversation);
-router.post("/rename", historyController.generateConversationName);
-router.get("/conversations", historyController.getConversations);
-router.get("/messages", historyController.getMessages);
+import { requireAuth } from "../middleware/auth";
+
+router.post("/create", requireAuth, historyController.createConversation);
+router.post("/rename", requireAuth, historyController.generateConversationName);
+router.get("/conversations", requireAuth, historyController.getConversations);
+router.get("/messages", requireAuth, historyController.getMessages);
 
 export { router as historyRoutes };

@@ -46,13 +46,10 @@ const upsertMemoryTool = tool(
  */
 const googleCalendarCreateTool = tool(
     async ({ summary, description, start, end }, runtime) => {
-        console.log("googleCalendarCreateTool called with:", { summary, description, start, end });
         const accessToken = runtime.context?.googleToken;
-        console.log("Access Token exists:", !!accessToken);
         if (!accessToken) return "Error: Google OAuth token not found. Please connect your Google Calendar.";
         try {
             const event = await createCalendarEvent(accessToken, { summary, description, start, end });
-            console.log("Event created successfully:", event.htmlLink);
             return `Successfully created event: ${event.htmlLink}`;
         } catch (error) {
             console.error("Error creating calendar event:", error);
@@ -76,13 +73,10 @@ const googleCalendarCreateTool = tool(
  */
 const googleCalendarListTool = tool(
     async ({ timeMin, timeMax, maxResults }, runtime) => {
-        console.log("googleCalendarListTool called with:", { timeMin, timeMax, maxResults });
         const accessToken = runtime.context?.googleToken;
-        console.log("Access Token exists:", !!accessToken);
         if (!accessToken) return "Error: Google OAuth token not found. Please connect your Google Calendar.";
         try {
             const events = await listCalendarEvents(accessToken, { timeMin, timeMax, maxResults });
-            console.log(`Found ${events.length} events.`);
             if (events.length === 0) return "No events found for the requested period.";
 
             const eventsList = events.map(e => {
@@ -122,7 +116,6 @@ const tools = [
  */
 const memoryMiddleware = dynamicSystemPromptMiddleware<z.infer<typeof contextSchema>>(
     async (state, runtime) => {
-        console.log("Memory middleware called with context:", runtime.context);
         const userId = runtime.context?.userId;
         // @ts-ignore
         const memoryStore = runtime.store || store;

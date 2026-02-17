@@ -6,10 +6,12 @@ import { conversationsTable, messagesTable } from "../config/schema";
 
 
 export const historyController = {
-    createConversation: async (req: Request, res: Response) => {
+    createConversation: async (req: Request | any, res: Response) => {
         try {
-            const body = req.body as { userId: string };
-            const { userId } = body;
+            const userId = req.auth?.userId;
+            if (!userId) {
+                return res.status(401).json({ message: "Unauthorized", success: false });
+            }
 
             const conversation = await db.insert(conversationsTable).values({ userId }).returning();
             return res.json({ conversation: conversation[0], success: true });
@@ -25,15 +27,11 @@ export const historyController = {
             });
         }
     },
-    getConversations: async (req: Request, res: Response) => {
+    getConversations: async (req: Request | any, res: Response) => {
         try {
-            const body = req.query as { id: string };
-            const userId = body.id;
+            const userId = req.auth?.userId;
             if (!userId) {
-                return res.status(400).json({
-                    message: 'User ID is required',
-                    success: false,
-                });
+                return res.status(401).json({ message: "Unauthorized", success: false });
             }
 
             const conversations = await db.select().from(conversationsTable).where(eq(conversationsTable.userId, userId)).orderBy(desc(conversationsTable.createdAt));
@@ -83,14 +81,18 @@ export const historyController = {
             });
         }
     },
-    getMessages: async (req: Request, res: Response) => {
+    getMessages: async (req: Request | any, res: Response) => {
         try {
+            const userId = req.auth?.userId;
             const { id, limit = '20', cursor } = req.query as { id: string, limit?: string, cursor?: string };
             if (!id) {
-                return res.status(400).json({
-                    message: 'ID is required',
-                    success: false,
-                });
+                return res.status(400).json({ message: 'ID is required', success: false });
+            }
+
+            // Verify ownership
+            const conv = await db.select().from(conversationsTable).where(and(eq(conversationsTable.id, id), eq(conversationsTable.userId, userId))).limit(1);
+            if (conv.length === 0) {
+                return res.status(403).json({ message: 'Forbidden', success: false });
             }
 
             const limitNum = parseInt(limit);
@@ -127,17 +129,22 @@ export const historyController = {
             });
         }
     },
-    generateConversationName: async (req: Request, res: Response) => {
+    generateConversationName: async (req: Request | any, res: Response) => {
         try {
+            const userId = req.auth?.userId;
             const body = req.body as { id: string, message: string };
             const id = body.id;
             const message = body.message;
             if (!id) {
-                return res.status(400).json({
-                    message: 'ID is required',
-                    success: false,
-                });
+                return res.status(400).json({ message: 'ID is required', success: false });
             }
+
+            // Verify ownership
+            const conv = await db.select().from(conversationsTable).where(and(eq(conversationsTable.id, id), eq(conversationsTable.userId, userId))).limit(1);
+            if (conv.length === 0) {
+                return res.status(403).json({ message: 'Forbidden', success: false });
+            }
+
             if (!message) {
                 return res.status(400).json({
                     message: 'Message is required',

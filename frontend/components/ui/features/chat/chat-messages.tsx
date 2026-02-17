@@ -1,15 +1,16 @@
 'use client'
 
 import { getQueryClient } from '@/lib/get-query-client'
-import { socket } from '@/lib/socket'
+import { createSocket } from '@/lib/socket'
 import { Conversation, Message } from '@/lib/types'
 import { getMessages, renameConversation } from '@/services/history'
-import { useUser } from '@clerk/nextjs'
+import { useAuth, useUser } from '@clerk/nextjs'
 import { InfiniteData, useMutation, useSuspenseInfiniteQuery } from '@tanstack/react-query'
 import { ArrowDown, Check, Sparkles } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
+import { Socket } from 'socket.io-client'
 import { AssistantBubble } from './assistant-bubble'
 import { InputField } from './input-field'
 import { UserBubble } from './user-bubble'
@@ -23,6 +24,7 @@ export function ChatMessages({ id }: { id: string }) {
     const virtuosoRef = useRef<VirtuosoHandle>(null);
     const queryClient = getQueryClient();
     const { user } = useUser();
+    const { getToken } = useAuth();
     const searchParams = useSearchParams();
 
     // 1. Extract first message from URL (?m=...)
@@ -36,6 +38,7 @@ export function ChatMessages({ id }: { id: string }) {
     const renamingId = useRef<string | null>(null);
     const hasSeededFirstMessage = useRef(false);
     const hasSentFirstMessage = useRef(false);
+    const socketRef = useRef<Socket | null>(null);
 
     // 2. Use useId for a stable, unique prefix that is "pure"
     const stableId = useId();
@@ -51,7 +54,7 @@ export function ChatMessages({ id }: { id: string }) {
     const buildMessage = useCallback(
         (role: 'user' | 'assistant', content: string, statusValue: Message['status']): Message => ({
             id: nextTempId(role), // Stable and predictable
-            conversationId: Number(id),
+            conversationId: id,
             role,
             content,
             status: statusValue,
@@ -63,7 +66,10 @@ export function ChatMessages({ id }: { id: string }) {
     // 2. Fetch or Sync Messages
     const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useSuspenseInfiniteQuery({
         queryKey: ['chat-messages', id],
-        queryFn: ({ pageParam }) => getMessages(id, 20, pageParam as string | undefined),
+        queryFn: async ({ pageParam }) => {
+            const token = await getToken();
+            return getMessages(id, 20, pageParam as string | undefined, token || undefined);
+        },
         initialPageParam: undefined as string | undefined,
         getNextPageParam: (lastPage) => lastPage.nextCursor,
     });
@@ -72,7 +78,10 @@ export function ChatMessages({ id }: { id: string }) {
 
     const renameConversationMutation = useMutation({
         mutationKey: ['rename_conversation'],
-        mutationFn: (data: { id: string; message: string }) => renameConversation(data.id, data.message),
+        mutationFn: async (data: { id: string; message: string }) => {
+            const token = await getToken();
+            return renameConversation(data.id, data.message, token || undefined);
+        },
         onSuccess: async (updated) => {
             if (!updated) return;
             queryClient.setQueryData<Conversation[]>(['conversations'], (old = []) =>
@@ -104,12 +113,13 @@ export function ChatMessages({ id }: { id: string }) {
 
     const emitMessage = useCallback(
         (userMessage: string) => {
+            if (!socketRef.current) return;
             setStatus(null);
             setIsStreaming(true);
-            socket.emit('user_message', {
+            socketRef.current.emit('user_message', {
                 conversationId: id,
                 userMessage,
-                socketId: socket.id,
+                socketId: socketRef.current.id,
                 userId: user?.id,
             });
         },
@@ -117,7 +127,8 @@ export function ChatMessages({ id }: { id: string }) {
     );
 
     const handleStopStream = useCallback(() => {
-        socket.emit('stop_generation', { conversationId: id });
+        if (!socketRef.current) return;
+        socketRef.current.emit('stop_generation', { conversationId: id });
         setIsStreaming(false);
         setStatus(null);
 
@@ -210,67 +221,77 @@ export function ChatMessages({ id }: { id: string }) {
 
     // 7. SOCKET LISTENERS
     useEffect(() => {
-        if (socket.connected) {
-            setTimeout(() => {
-                setIsConnected(true);
-            }, 0);
-        }
+        const initSocket = async () => {
+            const token = await getToken();
+            const socket = createSocket(token || undefined);
+            socketRef.current = socket;
 
-        const onConnect = () => setIsConnected(true);
-        const onDisconnect = () => setIsConnected(false);
+            const onConnect = () => setIsConnected(true);
+            const onDisconnect = () => setIsConnected(false);
 
-        const onStreamChunk = ({ chunk, done }: StreamChunk) => {
-            queryClient.setQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id], (old) => {
-                if (!old || old.pages.length === 0) return old;
+            const onStreamChunk = ({ chunk, done }: StreamChunk) => {
+                queryClient.setQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id], (old) => {
+                    if (!old || old.pages.length === 0) return old;
 
-                const newPages = [...old.pages];
-                const lastPageIndex = 0; // Newest page
-                const lastHistory = [...newPages[lastPageIndex].history];
+                    const newPages = [...old.pages];
+                    const lastPageIndex = 0; // Newest page
+                    const lastHistory = [...newPages[lastPageIndex].history];
 
-                if (lastHistory.length === 0) return old;
+                    if (lastHistory.length === 0) return old;
 
-                const lastIndex = lastHistory.length - 1;
-                const lastMessage = lastHistory[lastIndex];
+                    const lastIndex = lastHistory.length - 1;
+                    const lastMessage = lastHistory[lastIndex];
 
-                if (lastMessage.role !== 'assistant') {
-                    const assistantEntry = buildMessage('assistant', chunk, done ? 'done' : 'streaming');
-                    lastHistory.push(assistantEntry);
-                } else {
-                    lastHistory[lastIndex] = {
-                        ...lastMessage,
-                        content: lastMessage.content + chunk,
-                        status: done ? 'done' : 'streaming',
+                    if (lastMessage.role !== 'assistant') {
+                        const assistantEntry = buildMessage('assistant', chunk, done ? 'done' : 'streaming');
+                        lastHistory.push(assistantEntry);
+                    } else {
+                        lastHistory[lastIndex] = {
+                            ...lastMessage,
+                            content: lastMessage.content + chunk,
+                            status: done ? 'done' : 'streaming',
+                        };
+                    }
+
+                    newPages[lastPageIndex] = {
+                        ...newPages[lastPageIndex],
+                        history: lastHistory
                     };
+
+                    return { ...old, pages: newPages };
+                });
+
+                if (done) {
+                    setStatus(null);
+                    setIsStreaming(false);
                 }
+            };
 
-                newPages[lastPageIndex] = {
-                    ...newPages[lastPageIndex],
-                    history: lastHistory
-                };
+            const onStreamStatus = (payload: { status: string }) => setStatus(payload.status);
 
-                return { ...old, pages: newPages };
-            });
+            socket.on('connect', onConnect);
+            socket.on('disconnect', onDisconnect);
+            socket.on('stream:chunk', onStreamChunk);
+            socket.on('stream:status', onStreamStatus);
 
-            if (done) {
-                setStatus(null);
-                setIsStreaming(false);
+            if (socket.connected) {
+                setIsConnected(true);
             }
         };
 
-        const onStreamStatus = (payload: { status: string }) => setStatus(payload.status);
-
-        socket.on('connect', onConnect);
-        socket.on('disconnect', onDisconnect);
-        socket.on('stream:chunk', onStreamChunk);
-        socket.on('stream:status', onStreamStatus);
+        initSocket();
 
         return () => {
-            socket.off('connect', onConnect);
-            socket.off('disconnect', onDisconnect);
-            socket.off('stream:chunk', onStreamChunk);
-            socket.off('stream:status', onStreamStatus);
+            if (socketRef.current) {
+                socketRef.current.off('connect');
+                socketRef.current.off('disconnect');
+                socketRef.current.off('stream:chunk');
+                socketRef.current.off('stream:status');
+                socketRef.current.disconnect();
+                socketRef.current = null;
+            }
         };
-    }, [id, buildMessage, queryClient]);
+    }, [id, buildMessage, queryClient, getToken]);
 
     const scrollToBottom = useCallback(() => {
         if (messages.length > 0) {
