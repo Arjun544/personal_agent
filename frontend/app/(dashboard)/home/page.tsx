@@ -38,9 +38,8 @@ export default function DashboardPage() {
     // Initialize Socket.IO connection
     useEffect(() => {
         const initSocket = async () => {
-            const token = await getToken();
+            const socket = createSocket(getToken);
 
-            const socket = createSocket(token || undefined);
 
             socket.on("connect", () => {
                 console.log("Connected to backend:", socket.id);

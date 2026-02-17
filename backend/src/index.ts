@@ -10,7 +10,7 @@ import { logger, requestLogger } from "./middleware/logger";
 import { apiLimiter } from "./middleware/rate-limit";
 import { agentRoutes } from "./routes/agent";
 import { historyRoutes } from "./routes/history";
-import { checkpointer, store } from "./services/checkpointer";
+import { checkpointer } from "./services/checkpointer";
 import { initSocket } from "./socket";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 5000;
@@ -77,8 +77,7 @@ app.use(errorHandler);
 (async () => {
   try {
     await checkpointer.setup();
-    await store.setup();
-    logger.info("✅ PostgresSaver and PostgresStore initialized.");
+    logger.info("✅ PostgresSaver initialized.");
   } catch (err) {
     logger.error({ err }, "❌ Error initializing persistence:");
   }

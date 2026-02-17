@@ -19,7 +19,10 @@ export function initSocket(httpServer: any) {
 
       const decoded = await verifyToken(token, {
         secretKey: process.env.CLERK_SECRET_KEY,
+        // Add 60 seconds of clock skew tolerance
+        clockSkewInMs: 60 * 1000,
       });
+
 
       console.log("Socket auth successful for user:", decoded.sub);
       socket.data.userId = decoded.sub;

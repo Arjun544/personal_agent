@@ -28,8 +28,6 @@ export default function NewChatPage() {
             const token = await getToken();
             return createConversation(token || undefined);
         },
-
-
         onSuccess: async (data, payload) => {
             if (!data) {
                 toast.error("Failed to create conversation");

@@ -6,7 +6,9 @@ import { createCalendarEvent, listCalendarEvents } from "../config/googleCalenda
 import { PERSONAL_PROMPT } from "../prompts/personal";
 import { calculateTool } from "../tools/calculate-tool";
 import { currentTimeTool } from "../tools/current-time-tool";
-import { checkpointer, store } from "./checkpointer";
+import { checkpointer } from "./checkpointer";
+import { saveMemory, searchMemory } from "./memory";
+
 
 const llm = new ChatOpenAI({
     modelName: "gpt-4o",
@@ -27,9 +29,13 @@ const upsertMemoryTool = tool(
         const userId = runtime.context?.userId;
         if (!userId) return "Error: User ID not found in context.";
 
-        // @ts-ignore
-        await runtime.store.put(["memories", userId], key, { content });
-        return `Successfully remembered ${key}.`;
+        try {
+            await saveMemory(userId, key, content);
+            return `Successfully remembered ${key}.`;
+        } catch (error) {
+            console.error("Error saving memory:", error);
+            return `Error saving memory: ${error instanceof Error ? error.message : String(error)}`;
+        }
     },
     {
         name: "upsert_memory",
@@ -117,21 +123,21 @@ const tools = [
 const memoryMiddleware = dynamicSystemPromptMiddleware<z.infer<typeof contextSchema>>(
     async (state, runtime) => {
         const userId = runtime.context?.userId;
-        // @ts-ignore
-        const memoryStore = runtime.store || store;
+        if (!userId) return PERSONAL_PROMPT;
 
-        if (!userId || !memoryStore) return PERSONAL_PROMPT;
+        const lastMessage = state.messages[state.messages.length - 1];
+        if (!lastMessage || typeof lastMessage.content !== 'string') return PERSONAL_PROMPT;
 
         try {
-            // Search the store using the namespace
-            const items = await memoryStore.search(["memories", userId]);
+            // Semantic search based on the last message
+            const items = await searchMemory(userId, lastMessage.content, 5);
             const memoriesContext = items.length > 0
-                ? "\n\n### User Information:\n" + items.map(i => `- ${i.key}: ${i.value.content}`).join("\n")
+                ? "\n\n### Relevant User Information (semantically retrieved):\n" + items.map(i => `- ${i.key}: ${i.content}`).join("\n")
                 : "";
 
             return PERSONAL_PROMPT + memoriesContext;
         } catch (error) {
-            console.error("Store search failed:", error);
+            console.error("Semantic memory search failed:", error);
             return PERSONAL_PROMPT;
         }
     }
@@ -144,7 +150,6 @@ export const agent = createAgent({
     model: llm,
     tools,
     checkpointer,
-    store,
     contextSchema,
     middleware: [memoryMiddleware],
 });

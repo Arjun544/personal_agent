@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import db from "../config/database";
 import { conversationsTable, messagesTable } from "../config/schema";
 import { asyncHandler } from "../middleware/error-handler";
+import { CONVERSATION_TITLE_PROMPT } from "../prompts/conversation-title";
 import { ForbiddenError, UnauthorizedError, ValidationError } from "../utils/errors";
 import { ApiResponse } from "../utils/response";
 
@@ -119,12 +120,9 @@ export const historyController = {
             maxTokens: 20,
         });
 
-        const response = await model.invoke(`
-            Generate a short, concise conversation title (max 5 words) based on the user message.
-            Respond with ONLY the title text.
-
-            User Message: "${message}"
-        `);
+        const response = await model.invoke(
+            CONVERSATION_TITLE_PROMPT.replace('{message}', message)
+        );
 
         const content = response.content as string;
 
