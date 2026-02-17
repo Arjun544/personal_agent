@@ -1,4 +1,4 @@
-import { pgEnum, pgTable, text, timestamp, uuid, vector } from "drizzle-orm/pg-core";
+import { jsonb, pgEnum, pgTable, serial, text, timestamp, uuid, varchar, vector } from "drizzle-orm/pg-core";
 
 export const roleEnum = pgEnum('role', ['user', 'assistant']);
 
@@ -25,4 +25,12 @@ export const memoriesTable = pgTable("memories", {
     content: text("content").notNull(),
     embedding: vector("embedding", { dimensions: 1536 }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const documentChunks = pgTable("document_chunks", {
+    id: uuid('id').primaryKey().defaultRandom(),
+    content: text("content").notNull(),
+    metadata: jsonb("metadata").notNull(), // Stores source, page number, userId, etc.
+    embedding: vector("embedding", { dimensions: 1536 }),
+    userId: text("user_id").notNull(),
 });

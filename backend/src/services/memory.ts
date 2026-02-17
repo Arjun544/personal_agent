@@ -3,7 +3,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { db } from "../config/database";
 import { memoriesTable } from "../config/schema";
 
-const embeddings = new OpenAIEmbeddings({
+export const embeddings = new OpenAIEmbeddings({
     modelName: "text-embedding-3-small", // or "text-embedding-ada-002"
 });
 

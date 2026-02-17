@@ -11,7 +11,9 @@ import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
 import { Socket } from 'socket.io-client'
+import { toast } from 'sonner'
 import { AssistantBubble } from './assistant-bubble'
+import { DocumentTray } from './document-tray'
 import { InputField } from './input-field'
 import { UserBubble } from './user-bubble'
 
@@ -335,6 +337,12 @@ export function ChatMessages({ id }: { id: string }) {
         }
     }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+    const handleFileUploaded = useCallback((file: File) => {
+        toast.success(`"${file.name}" ingested successfully`);
+        appendMessages(`Uploaded document: ${file.name}. You can now ask questions about it.`);
+        emitMessage(`I've uploaded a PDF named "${file.name}". Please analyze it if I ask questions about its content.`);
+    }, [appendMessages, emitMessage]);
+
     const title = queryClient.getQueryData<Conversation[]>(['conversations'])
         ?.find(c => String(c.id) === String(id))?.title || 'New Conversation';
 
@@ -352,7 +360,9 @@ export function ChatMessages({ id }: { id: string }) {
                 </div>
 
 
+                <DocumentTray />
             </header>
+
 
             <div className="flex-1 min-h-0 w-full flex flex-col items-center overflow-hidden relative">
                 {messages.length > 0 ? (
@@ -429,6 +439,7 @@ export function ChatMessages({ id }: { id: string }) {
                     {user && (
                         <InputField
                             onSendMessage={handleSendMessage}
+                            onFileSelect={handleFileUploaded}
                             isStreaming={isStreaming}
                             onStop={handleStopStream}
                         />

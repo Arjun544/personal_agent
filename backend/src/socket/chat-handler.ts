@@ -13,6 +13,7 @@ type ChatMessage = {
     userMessage: string;
     socketId: string;
     userId: string;
+
 };
 
 export default function registerChatHandlers(socket: Socket) {
@@ -96,7 +97,8 @@ export default function registerChatHandlers(socket: Socket) {
                         "create_calendar_event": "Scheduling your meeting...",
                         "list_calendar_events": "Checking your calendar...",
                         "upsert_memory": "Remembering this for you...",
-                        "calculate": "Doing some math..."
+                        "calculator": "Doing some math...",
+                        "search_documents": "Searching your documents..."
                     };
 
                     const status: string = toolMessages[event.name] || `Using ${event.name}`;
@@ -104,10 +106,10 @@ export default function registerChatHandlers(socket: Socket) {
                 }
 
                 if (event.event === "on_chat_model_start") {
-                        socket.emit('stream:status', {
-                            status: "Thinking",
-                        });
-                    }
+                    socket.emit('stream:status', {
+                        status: "Thinking",
+                    });
+                }
             }
             // for await (const event of eventStream) {
             //     if (stopSignal) {

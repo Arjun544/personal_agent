@@ -1,18 +1,19 @@
+import { Calculator } from "@langchain/community/tools/calculator";
 import { tool } from "@langchain/core/tools";
 import { ChatOpenAI, tools as openAItools } from "@langchain/openai";
 import { createAgent, dynamicSystemPromptMiddleware } from "langchain";
 import { z } from "zod";
 import { createCalendarEvent, listCalendarEvents } from "../config/googleCalendar";
 import { PERSONAL_PROMPT } from "../prompts/personal";
-import { Calculator } from "@langchain/community/tools/calculator";
 import { currentTimeTool } from "../tools/current-time-tool";
+import { documentSearchTool } from "../tools/search-doc-tool";
 import { checkpointer } from "./checkpointer";
 import { saveMemory, searchMemory } from "./memory";
 
 
 const llm = new ChatOpenAI({
     modelName: "gpt-4o",
-    temperature: 0.7,
+    temperature: 0.1,
 });
 
 const contextSchema = z.object({
@@ -116,6 +117,7 @@ const tools = [
     upsertMemoryTool,
     googleCalendarCreateTool,
     googleCalendarListTool,
+    documentSearchTool,
 ];
 
 /**
