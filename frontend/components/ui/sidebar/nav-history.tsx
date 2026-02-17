@@ -21,13 +21,16 @@ import { useQuery } from "@tanstack/react-query"
 import { usePathname } from "next/navigation"
 
 export function NavHistory({ conversations: initialData }: { conversations: Conversation[] }) {
-    const { isSignedIn } = useAuth()
+    const { isSignedIn, getToken } = useAuth()
     const { user } = useUser()
     const pathname = usePathname()
 
     const { data: conversations } = useQuery({
         queryKey: ['conversations'],
-        queryFn: () => getConversations(user!.id),
+        queryFn: async () => {
+            const token = await getToken();
+            return getConversations(user!.id, token || undefined);
+        },
         initialData: initialData,
         enabled: !!user?.id,
     });
