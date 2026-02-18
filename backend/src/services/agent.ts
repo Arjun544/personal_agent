@@ -1,7 +1,8 @@
 import { Calculator } from "@langchain/community/tools/calculator";
+import { trimMessages } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { ChatOpenAI, tools as openAItools } from "@langchain/openai";
-import { createAgent, dynamicSystemPromptMiddleware } from "langchain";
+import { createAgent, createMiddleware, dynamicSystemPromptMiddleware, llmToolSelectorMiddleware, modelCallLimitMiddleware, summarizationMiddleware } from "langchain";
 import { z } from "zod";
 import { createCalendarEvent, listCalendarEvents } from "../config/googleCalendar";
 import { PERSONAL_PROMPT } from "../prompts/personal";
@@ -13,7 +14,12 @@ import { saveMemory, searchMemory } from "./memory";
 
 const llm = new ChatOpenAI({
     modelName: "gpt-4o",
-    temperature: 0.1,
+    temperature: 0, // Lower temperature for more consistent tool use
+});
+
+const summarizationModel = new ChatOpenAI({
+    modelName: "gpt-4o-mini",
+    temperature: 0,
 });
 
 const contextSchema = z.object({
@@ -28,22 +34,22 @@ const contextSchema = z.object({
 const upsertMemoryTool = tool(
     async ({ content, key }, runtime) => {
         const userId = runtime.context?.userId;
-        if (!userId) return "Error: User ID not found in context.";
+        if (!userId) return "Error: User ID not found in context. Cannot save memory.";
 
         try {
-            await saveMemory(userId, key, content);
-            return `Successfully remembered ${key}.`;
+            await saveMemory(userId, key.toLowerCase().replace(/\s+/g, '_'), content);
+            return `Successfully remembered ${key}. I will use this in future conversations.`;
         } catch (error) {
             console.error("Error saving memory:", error);
-            return `Error saving memory: ${error instanceof Error ? error.message : String(error)}`;
+            return `Critical: Failed to save memory. ${error instanceof Error ? error.message : String(error)}`;
         }
     },
     {
         name: "upsert_memory",
-        description: "Save user preferences or facts for future conversations.",
+        description: "Save user preferences, personal facts, project details, or recurring tasks for future conversations. Use this whenever the user shares something they want you to remember across sessions.",
         schema: z.object({
-            key: z.string().describe("Short key like 'favorite_color'"),
-            content: z.string().describe("The info to remember"),
+            key: z.string().describe("A short, descriptive key (e.g. 'coding_preferences', 'dog_name')"),
+            content: z.string().describe("The specific information to remember."),
         }),
     }
 );
@@ -54,23 +60,24 @@ const upsertMemoryTool = tool(
 const googleCalendarCreateTool = tool(
     async ({ summary, description, start, end }, runtime) => {
         const accessToken = runtime.context?.googleToken;
-        if (!accessToken) return "Error: Google OAuth token not found. Please connect your Google Calendar.";
+        if (!accessToken) return "Error: Google OAuth token missing. The user must connect their Google Calendar first.";
+
         try {
             const event = await createCalendarEvent(accessToken, { summary, description, start, end });
-            return `Successfully created event: ${event.htmlLink}`;
+            return `Event created successfully: ${event.summary} (${event.start?.dateTime || event.start?.date}). Link: ${event.htmlLink}`;
         } catch (error) {
             console.error("Error creating calendar event:", error);
-            return `Error creating event: ${error instanceof Error ? error.message : String(error)}`;
+            return `Error: Could not create calendar event. ${error instanceof Error ? error.message : String(error)}`;
         }
     },
     {
         name: "create_calendar_event",
-        description: "Create a new event in Google Calendar.",
+        description: "Schedule sessions, meetings, or reminders in the user's Google Calendar. Ensure you have the date and time clarified.",
         schema: z.object({
-            summary: z.string().describe("The title of the event"),
-            description: z.string().optional().describe("The description of the event"),
-            start: z.string().describe("The start time in ISO format (e.g. 2024-05-20T10:00:00Z)"),
-            end: z.string().describe("The end time in ISO format"),
+            summary: z.string().describe("Title of the event"),
+            description: z.string().optional().describe("Description or notes for the event"),
+            start: z.string().describe("Start time in ISO format (e.g. '2024-05-20T10:00:00Z')"),
+            end: z.string().describe("End time in ISO format"),
         }),
     }
 );
@@ -79,35 +86,116 @@ const googleCalendarCreateTool = tool(
  * Tool to list upcoming events from Google Calendar.
  */
 const googleCalendarListTool = tool(
-    async ({ timeMin, timeMax, maxResults }, runtime) => {
+    async ({ timeMin, timeMax, maxResults = 5 }, runtime) => {
         const accessToken = runtime.context?.googleToken;
-        if (!accessToken) return "Error: Google OAuth token not found. Please connect your Google Calendar.";
-        try {
-            const events = await listCalendarEvents(accessToken, { timeMin, timeMax, maxResults });
-            if (events.length === 0) return "No events found for the requested period.";
+        if (!accessToken) return "Error: Google OAuth token missing.";
 
-            const eventsList = events.map(e => {
+        try {
+            const events = await listCalendarEvents(accessToken, {
+                timeMin: timeMin || new Date().toISOString(),
+                timeMax,
+                maxResults
+            });
+
+            if (events.length === 0) return "Your calendar is clear for this period.";
+
+            const eventsList = events.slice(0, 5).map(e => {
                 const start = e.start?.dateTime || e.start?.date;
                 const end = e.end?.dateTime || e.end?.date;
-                return `- ${e.summary}: ${start} to ${end}`;
+                return `- ${e.summary} (${start} to ${end})`;
             }).join("\n");
 
-            return `Upcoming events:\n${eventsList}`;
+            return `Here are the upcoming events (top 5):\n${eventsList}`;
         } catch (error) {
             console.error("Error listing calendar events:", error);
-            return `Error listing events: ${error instanceof Error ? error.message : String(error)}`;
+            return `Error: Failed to retrieve calendar events. ${error instanceof Error ? error.message : String(error)}`;
         }
     },
     {
         name: "list_calendar_events",
-        description: "List upcoming events from Google Calendar.",
+        description: "Fetch upcoming events from the user's Google Calendar to check availability or provide a schedule overview.",
         schema: z.object({
-            timeMin: z.string().optional().describe("ISO format start time (e.g. 2024-05-20T00:00:00Z), defaults to now"),
-            timeMax: z.string().optional().describe("ISO format end time"),
-            maxResults: z.number().optional().describe("Max number of events to return (default 10)"),
+            timeMin: z.string().optional().describe("Start time in ISO format (default: now)"),
+            timeMax: z.string().optional().describe("End time in ISO format"),
+            maxResults: z.number().optional().describe("Number of events to list (default 5)"),
         }),
     }
 );
+
+/**
+ * Enhanced middleware to dynamically inject long-term memories into the system prompt.
+ * Uses a sliding window of recent messages for better semantic retrieval.
+ */
+const memoryMiddleware = dynamicSystemPromptMiddleware<z.infer<typeof contextSchema>>(
+    async (state, runtime) => {
+        const userId = runtime.context?.userId;
+        if (!userId) return PERSONAL_PROMPT;
+
+        // Query only on the last user message to keep retrieval focused
+        const lastUserMessage = state.messages.findLast(m => m.type === "user");
+        if (!lastUserMessage || typeof lastUserMessage.content !== 'string') return PERSONAL_PROMPT;
+
+        try {
+            // Reduce count to 2 highly relevant items
+            const items = await searchMemory(userId, lastUserMessage.content, 2);
+            if (items.length === 0) return PERSONAL_PROMPT;
+
+            // Use a denser format to save tokens
+            const memoriesContext = "\n\nKnown Facts: " +
+                items.map(i => `${i.key}=${i.content}`).join(" | ");
+
+            return PERSONAL_PROMPT + memoriesContext;
+        } catch (error) {
+            return PERSONAL_PROMPT;
+        }
+    }
+);
+
+const searchMemoryTool = tool(
+    async ({ query }, runtime) => {
+        const userId = runtime.context?.userId;
+        if (!userId) return "Error: User ID not found.";
+
+        try {
+            // Re-use your existing searchMemory service
+            const items = await searchMemory(userId, query, 3);
+            if (items.length === 0) return "No personal memories found for this query.";
+
+            return items.map(i => `${i.key}: ${i.content}`).join("\n");
+        } catch (error) {
+            return "Error searching long-term memory.";
+        }
+    },
+    {
+        name: "search_personal_memory",
+        description: "Search for specific facts about the user (name, preferences, bio) that were saved in previous chats. Use this if the info is not already in your system prompt.",
+        schema: z.object({
+            query: z.string().describe("The user fact to look up, e.g., 'user name'"),
+        }),
+    }
+);
+
+
+/**
+ * Middleware to automatically summarize conversation history when token limits are approached.
+ */
+const historyMiddleware = summarizationMiddleware({
+    model: summarizationModel,
+    trigger: { tokens: 5000 },
+    keep: { messages: 20 },
+});
+
+const trimmer = trimMessages({
+    maxTokens: 4000,
+    strategy: "last",
+    tokenCounter: llm,
+    includeSystem: true,
+});
+
+const trimmingMiddleware = createMiddleware(async (state: any) => {
+    const trimmedMessages = await trimmer.invoke(state.messages);
+    return { messages: trimmedMessages };
+});
 
 // Define tools available to the agent
 const tools = [
@@ -115,36 +203,11 @@ const tools = [
     new Calculator(),
     openAItools.webSearch(),
     upsertMemoryTool,
+    searchMemoryTool,
     googleCalendarCreateTool,
     googleCalendarListTool,
     documentSearchTool,
 ];
-
-/**
- * Middleware to dynamically inject long-term memories into the system prompt.
- */
-const memoryMiddleware = dynamicSystemPromptMiddleware<z.infer<typeof contextSchema>>(
-    async (state, runtime) => {
-        const userId = runtime.context?.userId;
-        if (!userId) return PERSONAL_PROMPT;
-
-        const lastMessage = state.messages[state.messages.length - 1];
-        if (!lastMessage || typeof lastMessage.content !== 'string') return PERSONAL_PROMPT;
-
-        try {
-            // Semantic search based on the last message
-            const items = await searchMemory(userId, lastMessage.content, 5);
-            const memoriesContext = items.length > 0
-                ? "\n\n### Relevant User Information (semantically retrieved):\n" + items.map(i => `- ${i.key}: ${i.content}`).join("\n")
-                : "";
-
-            return PERSONAL_PROMPT + memoriesContext;
-        } catch (error) {
-            console.error("Semantic memory search failed:", error);
-            return PERSONAL_PROMPT;
-        }
-    }
-);
 
 /**
  * We use dynamicSystemPromptMiddleware to inject long-term memories into the system prompt.
@@ -154,5 +217,15 @@ export const agent = createAgent({
     tools,
     checkpointer,
     contextSchema,
-    middleware: [memoryMiddleware],
+    middleware: [
+        // memoryMiddleware,
+        historyMiddleware,
+        trimmingMiddleware,
+        modelCallLimitMiddleware({
+        threadLimit: 10,
+        runLimit: 5,
+        exitBehavior: "end",
+    }),
+    ],
 });
+

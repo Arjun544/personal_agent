@@ -7,7 +7,7 @@ import { ApiResponse } from "../utils/response";
 
 const clerkClient = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 
-export const agentController = {
+export const chatController = {
     chat: asyncHandler(async (req: Request | any, res: Response) => {
         const { message, threadId } = req.body;
         const userId = req.auth?.userId;

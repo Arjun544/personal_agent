@@ -8,8 +8,9 @@ import { createServer } from "http";
 import { errorHandler } from "./middleware/error-handler";
 import { logger, requestLogger } from "./middleware/logger";
 import { apiLimiter } from "./middleware/rate-limit";
-import { agentRoutes } from "./routes/agent";
+import { agentRoutes } from "./routes/chat";
 import { historyRoutes } from "./routes/history";
+import { memoryRoutes } from "./routes/memory";
 import { checkpointer } from "./services/checkpointer";
 import { initSocket } from "./socket";
 
@@ -69,6 +70,7 @@ app.get("/", (req: express.Request, res: express.Response) => {
 
 app.use("/agent", agentRoutes);
 app.use("/history", historyRoutes);
+app.use("/memories", memoryRoutes);
 
 // Error Handling (must be after routes)
 app.use(errorHandler);

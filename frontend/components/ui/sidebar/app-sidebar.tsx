@@ -1,7 +1,7 @@
 "use client"
 
 import {
-    Edit2
+    Edit2, FileIcon, BrainIcon
 } from "lucide-react"
 import Image from "next/image"
 
@@ -37,6 +37,18 @@ export function AppSidebar({
                 url: "/new",
                 icon: Edit2,
                 isActive: pathname === "/new",
+            },
+            {
+                title: "Docs",
+                url: "/docs",
+                icon: FileIcon,
+                isActive: pathname === "/docs",
+            },
+            {
+                title: "Memories",
+                url: "/memories",
+                icon: BrainIcon,
+                isActive: pathname === "/memories",
             },
         ],
     }

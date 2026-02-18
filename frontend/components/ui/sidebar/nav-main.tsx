@@ -7,6 +7,7 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { cn } from "@/lib/utils"
 
 export function NavMain({
     items,
@@ -25,7 +26,12 @@ export function NavMain({
                     <SidebarMenuButton
                         asChild
                         isActive={item.isActive}
-                        className="h-11 px-3 bg-primary/5 hover:bg-primary/10 text-primary transition-all duration-200 rounded-lg cursor-pointer hover:shadow-2xs"
+                        className={cn(
+                            "h-11 px-3 transition-all duration-200 rounded-lg cursor-pointer hover:shadow-2xs",
+                            item.isActive
+                                ? "bg-primary/10 text-primary font-bold"
+                                : "text-muted-foreground hover:bg-primary/5 hover:text-primary"
+                        )}
                     >
                         <a href={item.url} className="flex items-center gap-3">
                             <item.icon className="size-[18px] group-hover:scale-110 group-data-[active=true]:scale-110 transition-transform" />

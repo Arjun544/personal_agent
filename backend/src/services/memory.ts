@@ -15,13 +15,6 @@ export async function saveMemory(userId: string, key: string, content: string) {
         key,
         content,
         embedding,
-    }).onConflictDoUpdate({
-        target: [memoriesTable.userId, memoriesTable.key],
-        set: {
-            content,
-            embedding,
-            createdAt: new Date(),
-        }
     });
 }
 
@@ -45,4 +38,17 @@ export async function searchMemory(userId: string, query: string, limit: number 
         .limit(limit);
 
     return results;
+}
+
+export async function getMemories(userId: string) {
+    return await db
+        .select({
+            id: memoriesTable.id,
+            key: memoriesTable.key,
+            content: memoriesTable.content,
+            createdAt: memoriesTable.createdAt,
+        })
+        .from(memoriesTable)
+        .where(eq(memoriesTable.userId, userId))
+        .orderBy(desc(memoriesTable.createdAt));
 }

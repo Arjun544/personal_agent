@@ -25,6 +25,7 @@
     "googleapis": "^171.4.0",
     "helmet": "^8.1.0",
     "langchain": "^1.2.12",
+    "langsmith": "^0.5.4",
     "mathjs": "^15.1.0",
     "pdf-parse": "1",
     "pino": "^10.3.1",

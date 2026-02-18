@@ -11,14 +11,15 @@ export const documentSearchTool = tool(
         if (!userId) return "Error: User ID not found in context.";
 
         try {
-            const results = await searchDocuments(userId, query, 5);
+            const results = await searchDocuments(userId, query, 3);
 
             if (results.length === 0) return "No relevant information found in the documents.";
 
             return results
                 .map(r => {
                     const meta = r.metadata as any;
-                    return `[Source: ${meta.source}, Page: ${meta.pageNumber}]\n${r.content}`;
+                    const content = r.content.slice(0, 1000);
+                    return `[Source: ${meta.source}, Page: ${meta.pageNumber}]\n${content}`;
                 })
                 .join("\n\n");
         } catch (error) {

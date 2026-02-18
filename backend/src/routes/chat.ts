@@ -3,7 +3,7 @@ import fs from "fs";
 import multer from "multer";
 import path from "path";
 import { z } from "zod";
-import { agentController } from "../controllers/agent";
+import { chatController } from "../controllers/chat";
 import { docController } from "../controllers/doc";
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validation";
@@ -48,7 +48,7 @@ const chatSchema = z.object({
     }),
 });
 
-router.post("/chat", requireAuth, validate(chatSchema), agentController.chat);
+router.post("/chat", requireAuth, validate(chatSchema), chatController.chat);
 router.post("/ingest-pdf", requireAuth, upload.single("pdf"), docController.ingest);
 router.get("/documents", requireAuth, docController.list);
 

@@ -98,6 +98,7 @@ export default function registerChatHandlers(socket: Socket) {
                         "list_calendar_events": "Checking your calendar...",
                         "upsert_memory": "Remembering this for you...",
                         "calculator": "Doing some math...",
+                        "search_personal_memory": "Searching your memories...",
                         "search_documents": "Searching your documents..."
                     };
 
