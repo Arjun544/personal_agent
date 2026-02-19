@@ -7,11 +7,15 @@ import { ApiResponse } from "../utils/response";
 export const memoryController = {
     getMemories: asyncHandler(async (req: Request | any, res: Response) => {
         const userId = req.auth?.userId;
+        const { limit = '20', cursor } = req.query as { limit?: string, cursor?: string };
+
         if (!userId) {
             throw new UnauthorizedError();
         }
 
-        const memories = await memoryService.getMemories(userId);
-        return ApiResponse.success(res, { memories });
+        const limitNum = parseInt(limit);
+
+        const data = await memoryService.getMemories(userId, limitNum, cursor);
+        return ApiResponse.success(res, data);
     }),
 };

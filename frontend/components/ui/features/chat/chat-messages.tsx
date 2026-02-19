@@ -14,7 +14,6 @@ import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
 import { Socket } from 'socket.io-client'
 import { toast } from 'sonner'
 import { AssistantBubble } from './assistant-bubble'
-import { DocumentTray } from './document-tray'
 import { InputField } from './input-field'
 import { UserBubble } from './user-bubble'
 
@@ -389,9 +388,6 @@ export function ChatMessages({ id }: { id: string }) {
                         {title}
                     </h1>
                 </div>
-
-
-                <DocumentTray />
             </header>
 
 

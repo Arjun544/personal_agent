@@ -38,7 +38,7 @@ export default async function DashboardLayout({
                         <header className="sticky top-0 z-10 flex h-16 items-center gap-4 bg-white px-6">
                             <SidebarTrigger />
                         </header>
-                        <main className="flex-1 flex flex-col min-h-0 bg-white">{children}</main>
+                        <main className="flex-1 flex flex-col min-h-0 p-8 bg-white">{children}</main>
                     </SidebarInset>
                 </div>
             </HydrationBoundary>
