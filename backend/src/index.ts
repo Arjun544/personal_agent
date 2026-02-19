@@ -12,7 +12,7 @@ import { agentRoutes } from "./routes/chat";
 import { historyRoutes } from "./routes/history";
 import { memoryRoutes } from "./routes/memory";
 import { checkpointer } from "./services/checkpointer";
-import { initSocket } from "./socket";
+import { initSocket } from "./config/socket";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 5000;
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";

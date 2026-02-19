@@ -1,5 +1,6 @@
 'use client'
 
+import { useApi } from '@/hooks/use-api'
 import { getQueryClient } from '@/lib/get-query-client'
 import { createSocket } from '@/lib/socket'
 import { Conversation, Message } from '@/lib/types'
@@ -22,11 +23,13 @@ type StreamChunk = {
     done: boolean;
 };
 
+
 export function ChatMessages({ id }: { id: string }) {
     const virtuosoRef = useRef<VirtuosoHandle>(null);
     const queryClient = getQueryClient();
     const { user } = useUser();
     const { getToken } = useAuth();
+    const api = useApi();
     const searchParams = useSearchParams();
 
     // 1. Extract first message from URL (?m=...)
@@ -39,7 +42,6 @@ export function ChatMessages({ id }: { id: string }) {
 
     const renamingId = useRef<string | null>(null);
     const hasSeededFirstMessage = useRef(false);
-    const hasSentFirstMessage = useRef(false);
     const socketRef = useRef<Socket | null>(null);
 
     // 2. Use useId for a stable, unique prefix that is "pure"
@@ -49,18 +51,17 @@ export function ChatMessages({ id }: { id: string }) {
     // 3. Update nextTempId to use the stable ID
     const nextTempId = useCallback((role: 'user' | 'assistant') => {
         tempCounter.current += 1;
-        // This is now pure because stableId never changes for this component instance
         return `temp-${stableId}-${role}-${tempCounter.current}`;
     }, [stableId]);
 
     const buildMessage = useCallback(
         (role: 'user' | 'assistant', content: string, statusValue: Message['status']): Message => ({
-            id: nextTempId(role), // Stable and predictable
+            id: nextTempId(role),
             conversationId: id,
             role,
             content,
             status: statusValue,
-            createdAt: new Date().toISOString(), // This is fine here because it's inside a callback, not the render body
+            createdAt: new Date().toISOString(),
         }),
         [id, nextTempId],
     );
@@ -92,14 +93,35 @@ export function ChatMessages({ id }: { id: string }) {
         },
     });
 
-    // 3. Helper to update TanStack cache locally
-    const appendMessages = useCallback(
-        (userMessage: string) => {
+    // 3. Send Message Mutation with Optimistic Update
+    const sendMessageMutation = useMutation({
+        mutationKey: ['send_message', id],
+        mutationFn: async (userMessage: string) => {
+            if (!socketRef.current?.connected) {
+                if (!isConnected) throw new Error("Connection lost");
+            }
+
+            await api.post('/agent/chat', {
+                message: userMessage,
+                threadId: id,
+                socketId: socketRef.current?.id,
+            });
+        },
+        onMutate: async (userMessage) => {
+            await queryClient.cancelQueries({ queryKey: ['chat-messages', id] });
+
+            const previousMessages = queryClient.getQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id]);
+
             const userEntry = buildMessage('user', userMessage, 'sending');
             const assistantEntry = buildMessage('assistant', '', 'streaming');
 
             queryClient.setQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id], (old) => {
-                if (!old) return old;
+                if (!old) {
+                    return {
+                        pages: [{ history: [userEntry, assistantEntry], nextCursor: null }],
+                        pageParams: [undefined]
+                    };
+                }
                 const newPages = [...old.pages];
                 if (newPages.length > 0) {
                     newPages[0] = {
@@ -109,96 +131,83 @@ export function ChatMessages({ id }: { id: string }) {
                 }
                 return { ...old, pages: newPages };
             });
-        },
-        [buildMessage, id, queryClient],
-    );
 
-    const emitMessage = useCallback(
-        (userMessage: string) => {
-            if (!socketRef.current) return;
             setStatus(null);
             setIsStreaming(true);
-            socketRef.current.emit('user_message', {
-                conversationId: id,
-                userMessage,
-                socketId: socketRef.current.id,
-                userId: user?.id,
-            });
+
+            // Scroll to bottom immediately
+            setTimeout(() => {
+                virtuosoRef.current?.scrollToIndex({
+                    index: (messages.length) + 1, // +2 items added
+                    behavior: 'smooth',
+                    align: 'end',
+                });
+            }, 10);
+
+            return { previousMessages };
         },
-        [id, user],
-    );
-
-    const handleStopStream = useCallback(() => {
-        if (!socketRef.current) return;
-        socketRef.current.emit('stop_generation', { conversationId: id });
-        setIsStreaming(false);
-        setStatus(null);
-
-        // Update the last assistant message status to 'done' (or 'aborted')
-        queryClient.setQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id], (old) => {
-            if (!old || old.pages.length === 0) return old;
-            const newPages = [...old.pages];
-            const lastPageIndex = 0;
-            const lastHistory = [...newPages[lastPageIndex].history];
-            const lastIndex = lastHistory.length - 1;
-
-            if (lastIndex >= 0 && lastHistory[lastIndex].role === 'assistant') {
-                lastHistory[lastIndex] = { ...lastHistory[lastIndex], status: 'done' };
-                newPages[lastPageIndex] = { ...newPages[lastPageIndex], history: lastHistory };
+        onError: (err, newUserMessage, context) => {
+            console.error("Failed to send message:", err);
+            toast.error("Failed to send message");
+            setIsStreaming(false);
+            if (context?.previousMessages) {
+                queryClient.setQueryData(['chat-messages', id], context.previousMessages);
             }
-            return { ...old, pages: newPages };
-        });
-    }, [id, queryClient]);
-
-    const sendMessage = useCallback(
-        (userMessage: string) => {
-            appendMessages(userMessage);
-            emitMessage(userMessage);
         },
-        [appendMessages, emitMessage],
-    );
+    });
 
-    // 4. SEEDING EFFECT: Show the message from URL immediately
-    useEffect(() => {
-        if (!firstMessage || hasSeededFirstMessage.current) return;
+    const stopStreamMutation = useMutation({
+        mutationKey: ['stop_stream', id],
+        mutationFn: async () => {
+            await api.post('/agent/chat/stop', { threadId: id });
+        },
+        onMutate: async () => {
+            setIsStreaming(false);
+            setStatus(null);
 
-        const currentData = queryClient.getQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id]);
-
-        if (!currentData || currentData.pages.flatMap(p => p.history).length === 0) {
-            const userEntry = buildMessage('user', firstMessage, 'sending');
-            const assistantEntry = buildMessage('assistant', '', 'streaming');
-
+            // Optimistically update last assistant message to 'done'
             queryClient.setQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id], (old) => {
-                if (!old) return {
-                    pages: [{ history: [userEntry, assistantEntry], nextCursor: null }],
-                    pageParams: [undefined]
-                };
+                if (!old || old.pages.length === 0) return old;
                 const newPages = [...old.pages];
-                newPages[0] = {
-                    ...newPages[0],
-                    history: [...newPages[0].history, userEntry, assistantEntry]
-                };
+                const lastHistory = [...newPages[0].history];
+                const lastIndex = lastHistory.length - 1;
+
+                if (lastIndex >= 0 && lastHistory[lastIndex].role === 'assistant') {
+                    lastHistory[lastIndex] = { ...lastHistory[lastIndex], status: 'done' };
+                    newPages[0] = { ...newPages[0], history: lastHistory };
+                }
                 return { ...old, pages: newPages };
             });
+        },
+        onError: (err) => {
+            console.error("Failed to stop generation:", err);
         }
+    });
 
-        hasSeededFirstMessage.current = true;
-    }, [firstMessage, id, queryClient, buildMessage]);
+    const handleSendMessage = useCallback((message: string) => {
+        if (isStreaming) return;
+        sendMessageMutation.mutate(message);
+    }, [sendMessageMutation]);
 
-    // 5. EMIT EFFECT: Trigger socket once connected and URL message is present
+    const handleStopStream = useCallback(() => {
+        stopStreamMutation.mutate();
+    }, [stopStreamMutation]);
+
+    // 4. SEEDING & AUTO-SEND EFFECT
     useEffect(() => {
-        if (!firstMessage || !isConnected || hasSentFirstMessage.current) return;
-
-        hasSentFirstMessage.current = true;
-        setTimeout(() => {
-            emitMessage(firstMessage);
-        }, 0);
+        if (!firstMessage || hasSeededFirstMessage.current || !isConnected) return;
 
         // Clean up URL: remove ?m= parameter without refreshing
         const url = new URL(window.location.href);
         url.searchParams.delete('m');
         window.history.replaceState({}, '', url.pathname);
-    }, [firstMessage, isConnected, emitMessage]);
+
+        hasSeededFirstMessage.current = true;
+
+        // Trigger mutation immediately
+        sendMessageMutation.mutate(firstMessage);
+
+    }, [firstMessage, isConnected, sendMessageMutation]);
 
     // 6. AUTO-RENAME EFFECT: Create a title based on the first message
     useEffect(() => {
@@ -223,15 +232,27 @@ export function ChatMessages({ id }: { id: string }) {
 
     // 7. SOCKET LISTENERS
     useEffect(() => {
+        let isMounted = true;
+        let socketInstance: Socket | null = null;
+
         const initSocket = async () => {
             const token = await getToken();
+            if (!isMounted) return;
+
             const socket = createSocket(token || undefined);
+            socketInstance = socket;
             socketRef.current = socket;
 
-            const onConnect = () => setIsConnected(true);
-            const onDisconnect = () => setIsConnected(false);
+            const onConnect = () => {
+                if (isMounted) setIsConnected(true);
+            }
+            const onDisconnect = () => {
+                if (isMounted) setIsConnected(false);
+            }
 
             const onStreamChunk = ({ chunk, done }: StreamChunk) => {
+                if (!isMounted) return;
+
                 queryClient.setQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id], (old) => {
                     if (!old || old.pages.length === 0) return old;
 
@@ -245,9 +266,15 @@ export function ChatMessages({ id }: { id: string }) {
                     const lastMessage = lastHistory[lastIndex];
 
                     if (lastMessage.role !== 'assistant') {
+                        // Should typically not happen if we optimistically added an assistant block
+                        // But if we did, we might want to append. 
+                        // However, with optimistic updates, we expect the last message to be assistant.
+                        // If it's done, we might need a new block? 
+                        // For now, let's assume standard flow.
                         const assistantEntry = buildMessage('assistant', chunk, done ? 'done' : 'streaming');
                         lastHistory.push(assistantEntry);
                     } else {
+                        // Avoid duplicates if usage logic changes, but here we just append
                         lastHistory[lastIndex] = {
                             ...lastMessage,
                             content: lastMessage.content + chunk,
@@ -269,7 +296,9 @@ export function ChatMessages({ id }: { id: string }) {
                 }
             };
 
-            const onStreamStatus = (payload: { status: string }) => setStatus(payload.status);
+            const onStreamStatus = (payload: { status: string }) => {
+                if (isMounted) setStatus(payload.status);
+            }
 
             socket.on('connect', onConnect);
             socket.on('disconnect', onDisconnect);
@@ -277,19 +306,22 @@ export function ChatMessages({ id }: { id: string }) {
             socket.on('stream:status', onStreamStatus);
 
             if (socket.connected) {
-                setIsConnected(true);
+                onConnect();
             }
         };
 
         initSocket();
 
         return () => {
-            if (socketRef.current) {
-                socketRef.current.off('connect');
-                socketRef.current.off('disconnect');
-                socketRef.current.off('stream:chunk');
-                socketRef.current.off('stream:status');
-                socketRef.current.disconnect();
+            isMounted = false;
+            if (socketInstance) {
+                socketInstance.off('connect');
+                socketInstance.off('disconnect');
+                socketInstance.off('stream:chunk');
+                socketInstance.off('stream:status');
+                socketInstance.disconnect();
+            }
+            if (socketRef.current === socketInstance) {
                 socketRef.current = null;
             }
         };
@@ -304,12 +336,6 @@ export function ChatMessages({ id }: { id: string }) {
             });
         }
     }, [messages.length]); // Use messages.length for stability
-
-    const handleSendMessage = useCallback((message: string) => {
-        sendMessage(message);
-        // Small delay to ensure the new message is in the DOM
-        setTimeout(scrollToBottom, 50);
-    }, [sendMessage, scrollToBottom]);
 
     const renderItem = useCallback((index: number, message: Message) => {
         const isLast = index === messages.length - 1;
@@ -339,9 +365,11 @@ export function ChatMessages({ id }: { id: string }) {
 
     const handleFileUploaded = useCallback((file: File) => {
         toast.success(`"${file.name}" ingested successfully`);
-        appendMessages(`Uploaded document: ${file.name}. You can now ask questions about it.`);
-        emitMessage(`I've uploaded a PDF named "${file.name}". Please analyze it if I ask questions about its content.`);
-    }, [appendMessages, emitMessage]);
+        const userMsg = `I've uploaded a PDF named "${file.name}". Please analyze it if I ask questions about its content.`;
+
+        // Optimistically update via mutation
+        sendMessageMutation.mutate(userMsg);
+    }, [sendMessageMutation]);
 
     const title = queryClient.getQueryData<Conversation[]>(['conversations'])
         ?.find(c => String(c.id) === String(id))?.title || 'New Conversation';

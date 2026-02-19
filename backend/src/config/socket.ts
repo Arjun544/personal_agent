@@ -1,6 +1,5 @@
 import { verifyToken } from "@clerk/clerk-sdk-node";
 import { Server, Socket } from "socket.io";
-import registerChatHandlers from "./chat-handler";
 
 export function initSocket(httpServer: any) {
   const io = new Server(httpServer, {
@@ -35,8 +34,9 @@ export function initSocket(httpServer: any) {
 
   io.on("connection", (socket: Socket | any) => {
     console.log("Connected:", socket.data.userId);
-
-    registerChatHandlers(socket);
+    if (socket.data.userId) {
+      socket.join(socket.data.userId);
+    }
   });
 
   return io;

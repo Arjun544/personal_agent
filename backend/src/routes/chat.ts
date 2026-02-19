@@ -44,11 +44,13 @@ const chatSchema = z.object({
     body: z.object({
         message: z.string().min(1, "Message is required"),
         threadId: z.string().optional(),
+        socketId: z.string().optional(),
         agent: z.string().optional().default("Personal"),
     }),
 });
 
 router.post("/chat", requireAuth, validate(chatSchema), chatController.chat);
+router.post("/chat/stop", requireAuth, chatController.stop);
 router.post("/ingest-pdf", requireAuth, upload.single("pdf"), docController.ingest);
 router.get("/documents", requireAuth, docController.list);
 
