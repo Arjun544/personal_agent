@@ -1,6 +1,18 @@
 # Persona: Your Personal Second Brain
 
+
 > A proactive, context-aware AI executive assistant designed to manage your time, tasks, and information with precision. Built for seamless continuity and long-term memory.
+
+## Screenshots
+
+
+| ![Chat Interface](https://wmqhwzxgnhirsljmgghn.supabase.co/storage/v1/object/public/screenshots/Capture%202.PNG) | ![Dashboard View](https://wmqhwzxgnhirsljmgghn.supabase.co/storage/v1/object/public/screenshots/Capture.PNG) |
+| :---: | :---: |
+| **New Chat** | **Chat Messages** |
+| ![Memories View](https://wmqhwzxgnhirsljmgghn.supabase.co/storage/v1/object/public/screenshots/Capture%203.PNG) | ![Docs View](https://wmqhwzxgnhirsljmgghn.supabase.co/storage/v1/object/public/screenshots/Capture%204.PNG) |
+| **Memories** | **Docs** |
+
+
 
 ## 🧠 Agent Capabilities
 
