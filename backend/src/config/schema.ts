@@ -15,6 +15,7 @@ export const messagesTable = pgTable("messages", {
     conversationId: uuid("conversation_id").notNull().references(() => conversationsTable.id),
     role: roleEnum('role').notNull().default('user'),
     content: text("content").notNull(),
+    docUrl: text("doc_url"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

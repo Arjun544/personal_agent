@@ -10,6 +10,7 @@ export interface Message {
     conversationId: string;
     role: "user" | "assistant";
     content: string;
+    docUrl?: string;
     createdAt: string;
     status: "sending" | "streaming" | "done" | "error";
 }

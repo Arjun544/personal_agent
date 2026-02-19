@@ -1,7 +1,5 @@
 import { Router } from "express";
-import fs from "fs";
 import multer from "multer";
-import path from "path";
 import { z } from "zod";
 import { chatController } from "../controllers/chat";
 import { docController } from "../controllers/doc";
@@ -11,21 +9,7 @@ import { validate } from "../middleware/validation";
 const router = Router();
 
 // Configure multer for PDF uploads
-const uploadDir = path.join(process.cwd(), "uploads");
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-        cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname));
-    },
-});
-
+const storage = multer.memoryStorage();
 const upload = multer({
     storage,
     fileFilter: (req, file, cb) => {
@@ -45,7 +29,7 @@ const chatSchema = z.object({
         message: z.string().min(1, "Message is required"),
         threadId: z.string().optional(),
         socketId: z.string().optional(),
-        agent: z.string().optional().default("Personal"),
+        docUrl: z.string().optional(),
     }),
 });
 

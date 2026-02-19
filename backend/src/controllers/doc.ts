@@ -1,14 +1,13 @@
 import { Request, Response } from "express";
-import fs from "fs";
 import { asyncHandler } from "../middleware/error-handler";
+import { ingestPDF, listDocuments } from "../services/doc";
 import { UnauthorizedError, ValidationError } from "../utils/errors";
 import { ApiResponse } from "../utils/response";
-import { ingestPDF, listDocuments } from "../services/doc";
 
 export const docController = {
     ingest: asyncHandler(async (req: Request | any, res: Response) => {
         const userId = req.auth?.userId;
-        const file = req.file; 
+        const file = req.file;
         const { conversationId } = req.body as { conversationId: string };
 
 
@@ -21,18 +20,11 @@ export const docController = {
         }
 
         try {
-            await ingestPDF(userId, file.path, conversationId);
+            const result = await ingestPDF(userId as string, file.buffer, file.originalname, conversationId);
 
-            // Optionally delete the file after ingestion if you don't want to keep it
-            // fs.unlinkSync(file.path);
-
-            return ApiResponse.success(res, { message: "PDF ingested successfully" });
+            return ApiResponse.success(res, { ...result, message: "PDF ingested successfully" });
         } catch (error) {
             console.error("Error ingesting PDF:", error);
-            // Delete file on error too
-            if (fs.existsSync(file.path)) {
-                fs.unlinkSync(file.path);
-            }
             throw error;
         }
     }),

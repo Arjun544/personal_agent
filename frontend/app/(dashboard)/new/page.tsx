@@ -17,14 +17,14 @@ export default function NewChatPage() {
 
     const createConversationMutation = useMutation({
         mutationKey: ['create_conversation'],
-        onMutate: (payload: { userId: string; message: string }) => {
+        onMutate: (payload: { userId: string; message: string; docUrl?: string }) => {
             if (!payload.userId) {
                 console.error("User not found in payload", payload);
                 toast.error("User not found");
                 return;
             }
         },
-        mutationFn: async (payload: { userId: string; message: string }) => {
+        mutationFn: async (payload: { userId: string; message: string; docUrl?: string }) => {
             const token = await getToken();
             return createConversation(token || undefined);
         },
@@ -35,7 +35,12 @@ export default function NewChatPage() {
             }
             const queryClient = getQueryClient();
             queryClient.setQueryData<Conversation[]>(['conversations'], (old = []) => [data, ...old]);
-            router.push(`/chat/${data.id}?m=${encodeURIComponent(payload.message)}`);
+
+            let url = `/chat/${data.id}?m=${encodeURIComponent(payload.message)}`;
+            if (payload.docUrl) {
+                url += `&docUrl=${encodeURIComponent(payload.docUrl)}`;
+            }
+            router.push(url);
         },
         onError: () => {
             toast.error("Failed to send message");
@@ -43,28 +48,16 @@ export default function NewChatPage() {
     });
 
 
-    const handleSend = async (message: string) => {
+    const handleSend = async (message: string, docUrl?: string) => {
         const trimmed = message.trim();
         if (!user?.id) {
             showLoginToast();
             return;
         }
-        if (!trimmed) return;
-        createConversationMutation.mutate({ userId: user.id, message: trimmed });
-    }
+        if (!trimmed && !docUrl) return; // Allow sending just a doc if we want, but message usually required? logic in InputField allows message="Sent a file"
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, message: string) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            const trimmed = message.trim();
-            if (!user?.id) {
-                showLoginToast();
-                return;
-            }
-            if (!trimmed) return;
-            createConversationMutation.mutate({ userId: user.id, message: trimmed });
-        }
-    };
+        createConversationMutation.mutate({ userId: user.id, message: trimmed, docUrl });
+    }
 
     const showLoginToast = () => {
         toast.info("Please login to continue")
@@ -109,7 +102,6 @@ export default function NewChatPage() {
 
                     <InputField
                         onSendMessage={handleSend}
-                        onKeyDown={handleKeyDown}
                         disabled={createConversationMutation.isPending}
                     />
 

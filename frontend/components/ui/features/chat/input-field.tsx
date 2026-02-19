@@ -10,7 +10,7 @@ import { Button } from "../../button";
 import { Textarea } from "../../textarea";
 
 interface InputFieldProps {
-    onSendMessage?: (message: string) => void;
+    onSendMessage?: (message: string, docUrl?: string) => void;
     onFileSelect?: (file: File) => void;
     onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>, message: string) => void;
     disabled?: boolean;
@@ -21,6 +21,7 @@ interface InputFieldProps {
 export const InputField = memo(function InputField({ onSendMessage, onFileSelect, onKeyDown, disabled, isStreaming, onStop }: InputFieldProps) {
     const [message, setMessage] = useState("");
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [uploadedDocUrl, setUploadedDocUrl] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const { getToken } = useAuth();
 
@@ -28,7 +29,12 @@ export const InputField = memo(function InputField({ onSendMessage, onFileSelect
         mutationKey: ['upload-pdf'],
         mutationFn: async (file: File) => {
             const token = await getToken();
-            await ingestPdf(file, token || undefined);
+            return await ingestPdf(file, token || undefined);
+        },
+        onSuccess: (data: any) => { // Use 'any' or proper type if imported
+            if (data?.publicUrl) {
+                setUploadedDocUrl(data.publicUrl);
+            }
         },
         onSettled: () => {
             if (fileInputRef.current) fileInputRef.current.value = "";
@@ -44,7 +50,10 @@ export const InputField = memo(function InputField({ onSendMessage, onFileSelect
         if ((!nextMessage && !hasFile) || disabled || isStreaming) return;
 
         if (nextMessage) {
-            onSendMessage?.(nextMessage);
+            onSendMessage?.(nextMessage, uploadedDocUrl || undefined);
+        } else if (hasFile && uploadedDocUrl) {
+            // If only file is present, send a default message or handle as file-only
+            onSendMessage?.("Sent a file", uploadedDocUrl);
         }
 
         if (hasFile) {
@@ -53,8 +62,9 @@ export const InputField = memo(function InputField({ onSendMessage, onFileSelect
 
         setMessage("");
         setSelectedFile(null);
+        setUploadedDocUrl(null);
         uploadMutation.reset();
-    }, [message, onSendMessage, onFileSelect, disabled, isStreaming, selectedFile, isUploading, uploadMutation]);
+    }, [message, onSendMessage, onFileSelect, disabled, isStreaming, selectedFile, isUploading, uploadMutation, uploadedDocUrl]);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === "Enter" && !e.shiftKey) {
@@ -76,7 +86,6 @@ export const InputField = memo(function InputField({ onSendMessage, onFileSelect
         uploadMutation.mutate(file);
     };
 
-    const activeFile = uploadMutation.variables as File | undefined;
 
     return (
         <div className="relative group/input">
@@ -101,6 +110,7 @@ export const InputField = memo(function InputField({ onSendMessage, onFileSelect
                             <button
                                 onClick={() => {
                                     setSelectedFile(null);
+                                    setUploadedDocUrl(null);
                                     uploadMutation.reset();
                                 }}
                                 className="absolute top-1/2 -right-1 -translate-y-1/2 p-1.5 rounded-full hover:bg-muted/50 text-muted-foreground transition-colors"
@@ -176,4 +186,3 @@ export const InputField = memo(function InputField({ onSendMessage, onFileSelect
         </div>
     );
 });
-

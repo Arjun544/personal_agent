@@ -8,15 +8,12 @@ import { documentChunks } from "../config/schema";
 import { supabase } from "../config/supabase";
 import { embeddings } from "./memory";
 
-export async function ingestPDF(userId: string, filePath: string, conversationId: string) {
-    const fileName = path.basename(filePath);
-    const fileContent = await fs.readFile(filePath);
-
+export async function ingestPDF(userId: string, fileBuffer: Buffer, fileName: string, conversationId: string) {
     // 1. Upload to Supabase Storage
     const storagePath = `documents/${userId}/${Date.now()}_${fileName}`;
     const { error: uploadError } = await supabase.storage
         .from('documents') // Make sure this bucket exists
-        .upload(storagePath, fileContent, {
+        .upload(storagePath, fileBuffer, {
             contentType: 'application/pdf',
             upsert: true
         });
@@ -31,15 +28,27 @@ export async function ingestPDF(userId: string, filePath: string, conversationId
         .getPublicUrl(storagePath);
 
     // 2. Load and Split PDF
-    const loader = new PDFLoader(filePath);
-    const rawDocs = await loader.load();
+    // Create a temporary file to use with PDFLoader
+    const tempDir = await fs.mkdtemp(path.join(process.cwd(), 'temp-'));
+    const tempFilePath = path.join(tempDir, fileName);
+    await fs.writeFile(tempFilePath, fileBuffer);
 
-    const splitter = new RecursiveCharacterTextSplitter({
-        chunkSize: 1000,
-        chunkOverlap: 200,
-    });
+    let docChunks;
+    try {
+        const loader = new PDFLoader(tempFilePath);
+        const rawDocs = await loader.load();
 
-    const docChunks = await splitter.splitDocuments(rawDocs);
+        const splitter = new RecursiveCharacterTextSplitter({
+            chunkSize: 1000,
+            chunkOverlap: 200,
+        });
+
+        docChunks = await splitter.splitDocuments(rawDocs);
+    } finally {
+        // Clean up temp file
+        await fs.unlink(tempFilePath);
+        await fs.rmdir(tempDir);
+    }
 
     // 3. Generate Embeddings and Save to Database
     for (let i = 0; i < docChunks.length; i++) {

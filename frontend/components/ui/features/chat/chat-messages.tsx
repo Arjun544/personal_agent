@@ -1,9 +1,9 @@
 'use client'
 
-import { useApi } from '@/hooks/use-api'
 import { getQueryClient } from '@/lib/get-query-client'
 import { createSocket } from '@/lib/socket'
 import { Conversation, Message } from '@/lib/types'
+import { sendMessage, stopStream } from '@/services/chat'
 import { getMessages, renameConversation } from '@/services/history'
 import { useAuth, useUser } from '@clerk/nextjs'
 import { InfiniteData, useMutation, useSuspenseInfiniteQuery } from '@tanstack/react-query'
@@ -29,11 +29,11 @@ export function ChatMessages({ id }: { id: string }) {
     const queryClient = getQueryClient();
     const { user } = useUser();
     const { getToken } = useAuth();
-    const api = useApi();
     const searchParams = useSearchParams();
 
-    // 1. Extract first message from URL (?m=...)
+    // 1. Extract first message and docUrl from URL (?m=...&docUrl=...)
     const firstMessage = (searchParams.get('m') || '').trim();
+    const docUrlParam = (searchParams.get('docUrl') || '').trim();
 
     const [isConnected, setIsConnected] = useState(false);
     const [status, setStatus] = useState<string | null>(null);
@@ -55,11 +55,12 @@ export function ChatMessages({ id }: { id: string }) {
     }, [stableId]);
 
     const buildMessage = useCallback(
-        (role: 'user' | 'assistant', content: string, statusValue: Message['status']): Message => ({
+        (role: 'user' | 'assistant', content: string, statusValue: Message['status'], docUrl?: string): Message => ({
             id: nextTempId(role),
             conversationId: id,
             role,
             content,
+            docUrl,
             status: statusValue,
             createdAt: new Date().toISOString(),
         }),
@@ -96,23 +97,27 @@ export function ChatMessages({ id }: { id: string }) {
     // 3. Send Message Mutation with Optimistic Update
     const sendMessageMutation = useMutation({
         mutationKey: ['send_message', id],
-        mutationFn: async (userMessage: string) => {
+        mutationFn: async (variables: { message: string; docUrl?: string }) => {
+            const { message: userMessage, docUrl } = variables;
             if (!socketRef.current?.connected) {
                 if (!isConnected) throw new Error("Connection lost");
             }
 
-            await api.post('/agent/chat', {
+            const token = await getToken();
+            await sendMessage({
                 message: userMessage,
                 threadId: id,
                 socketId: socketRef.current?.id,
-            });
+                docUrl,
+            }, token || undefined);
         },
-        onMutate: async (userMessage) => {
+        onMutate: async (variables) => {
+            const { message: userMessage, docUrl } = variables;
             await queryClient.cancelQueries({ queryKey: ['chat-messages', id] });
 
             const previousMessages = queryClient.getQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id]);
 
-            const userEntry = buildMessage('user', userMessage, 'sending');
+            const userEntry = buildMessage('user', userMessage, 'sending', docUrl);
             const assistantEntry = buildMessage('assistant', '', 'streaming');
 
             queryClient.setQueryData<InfiniteData<{ history: Message[], nextCursor: string | null }>>(['chat-messages', id], (old) => {
@@ -146,7 +151,7 @@ export function ChatMessages({ id }: { id: string }) {
 
             return { previousMessages };
         },
-        onError: (err, newUserMessage, context) => {
+        onError: (err, variables, context) => {
             console.error("Failed to send message:", err);
             toast.error("Failed to send message");
             setIsStreaming(false);
@@ -159,7 +164,8 @@ export function ChatMessages({ id }: { id: string }) {
     const stopStreamMutation = useMutation({
         mutationKey: ['stop_stream', id],
         mutationFn: async () => {
-            await api.post('/agent/chat/stop', { threadId: id });
+            const token = await getToken();
+            await stopStream(id, token || undefined);
         },
         onMutate: async () => {
             setIsStreaming(false);
@@ -184,9 +190,9 @@ export function ChatMessages({ id }: { id: string }) {
         }
     });
 
-    const handleSendMessage = useCallback((message: string) => {
+    const handleSendMessage = useCallback((message: string, docUrl?: string) => {
         if (isStreaming) return;
-        sendMessageMutation.mutate(message);
+        sendMessageMutation.mutate({ message, docUrl });
     }, [sendMessageMutation]);
 
     const handleStopStream = useCallback(() => {
@@ -195,19 +201,20 @@ export function ChatMessages({ id }: { id: string }) {
 
     // 4. SEEDING & AUTO-SEND EFFECT
     useEffect(() => {
-        if (!firstMessage || hasSeededFirstMessage.current || !isConnected) return;
+        if ((!firstMessage && !docUrlParam) || hasSeededFirstMessage.current || !isConnected) return;
 
-        // Clean up URL: remove ?m= parameter without refreshing
+        // Clean up URL: remove ?m= and ?docUrl= parameters without refreshing
         const url = new URL(window.location.href);
         url.searchParams.delete('m');
-        window.history.replaceState({}, '', url.pathname);
+        url.searchParams.delete('docUrl');
+        window.history.replaceState({}, '', url.pathname + url.search); // maintain other params if any? url.pathname is safer for clean URL
 
         hasSeededFirstMessage.current = true;
 
         // Trigger mutation immediately
-        sendMessageMutation.mutate(firstMessage);
+        sendMessageMutation.mutate({ message: firstMessage || "Sent a file", docUrl: docUrlParam || undefined });
 
-    }, [firstMessage, isConnected, sendMessageMutation]);
+    }, [firstMessage, docUrlParam, isConnected, sendMessageMutation]);
 
     // 6. AUTO-RENAME EFFECT: Create a title based on the first message
     useEffect(() => {
@@ -365,11 +372,7 @@ export function ChatMessages({ id }: { id: string }) {
 
     const handleFileUploaded = useCallback((file: File) => {
         toast.success(`"${file.name}" ingested successfully`);
-        const userMsg = `I've uploaded a PDF named "${file.name}". Please analyze it if I ask questions about its content.`;
-
-        // Optimistically update via mutation
-        sendMessageMutation.mutate(userMsg);
-    }, [sendMessageMutation]);
+    }, []);
 
     const title = queryClient.getQueryData<Conversation[]>(['conversations'])
         ?.find(c => String(c.id) === String(id))?.title || 'New Conversation';

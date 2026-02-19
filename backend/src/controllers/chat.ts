@@ -14,7 +14,7 @@ const clerkClient = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY 
 
 export const chatController = {
     chat: asyncHandler(async (req: Request | any, res: Response) => {
-        const { message, threadId, socketId } = req.body;
+        const { message, threadId, socketId, docUrl } = req.body;
         const userId = req.auth?.userId;
 
         if (!userId) {
@@ -39,6 +39,7 @@ export const chatController = {
                 conversationId,
                 content: message,
                 role: 'user',
+                docUrl,
             });
 
             // Fetch Google OAuth token from Clerk
